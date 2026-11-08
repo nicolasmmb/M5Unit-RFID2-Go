@@ -4,7 +4,7 @@ Driver Go do **Unit RFID2** (SKU U031-B): WS1850S (registradores MFRC522),
 13,56 MHz, I2C em 0x28. 100% Go.
 
 - Módulo: `github.com/nicolasmmb/M5Unit-RFID2-Go`
-- Estado: v0.1.1. `Init` validado em hardware; falta cartão para select/read.
+- Estado: validado em hardware (MIFARE Classic 1K): select, auth key A e leitura de bloco.
 
 ## 1. Hardware e protocolo
 
@@ -54,6 +54,16 @@ Hipóteses abertas, em ordem: (1) cartão/emulador não é 13,56 MHz ISO14443-A;
 alinhamento. Para separar (1) de (2) é preciso um cartão MIFARE Classic 1K
 físico ou o mesmo unit em outra placa.
 
+## 3.1 Causa raiz do "não lê cartão"
+
+O driver escrevia `TxModeReg` e `RxModeReg` em cada transceive (a oficial nunca
+escreve nesses registradores) e usava escrita direta no flush do FIFO e no
+`StartSend` onde a oficial faz read-modify-write (`PCD_SetRegisterBitMask`).
+Depois de espelhar a sequência oficial, o cartão respondeu de imediato.
+
+Comparação usada para achar isso: um sketch PlatformIO com a lib oficial
+(`MFRC522_I2C.cpp`) no mesmo unit e cartão leu `ATQA 04 00` e `ComIrq=0x64`.
+
 ## 4. Decisões
 
 1. **CRC_A em software** (0x8408 refletido, init 0x6363). Motivo: determinístico
@@ -84,7 +94,7 @@ Emulador de chip com registradores, FIFO e cartão roteirizado:
 - [x] Testes, contratos, benchmarks.
 - [x] README, BENCHMARKS, Makefile, CI, exemplo.
 - [x] Validação parcial em hardware: `Init`, versão (0x15) e REQA sem cartão.
-- [ ] Validação com um cartão (select, auth, read, write).
+- [x] Validação com cartão: UID 0A EE 8D 02, SAK 0x08, auth e leitura ok.
 - [ ] Publicar e tag `v0.1.0`.
 
 ## 6. Pendências

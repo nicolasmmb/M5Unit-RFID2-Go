@@ -233,16 +233,36 @@ REQA status=1 ATQA=04 00
 ComIrq=0x64 ErrorReg=0x00 FIFO=0
 ```
 
-`status=1` is STATUS_OK, `ATQA 04 00` is a MIFARE Ultralight and
-`ComIrq=0x64` carries **RxIRq**. So the unit and the card work, and the
-remaining defect is in this Go driver's transceive path.
+`status=1` is STATUS_OK, `ATQA 04 00` and `ComIrq=0x64` carries **RxIRq**.
+So the unit and the card work, and the defect was in this driver.
 
-Places where the Go driver still differs from the official sequence and that
-are the next suspects:
+Root cause: the driver wrote `TxModeReg` and `RxModeReg` on every transceive
+(the official never touches them) and used plain writes for the FIFO flush and
+`StartSend` where the official does a read-modify-write. Matching the official
+sequence exactly fixed it:
 
-1. it writes `TxModeReg` and `RxModeReg` (the official leaves them alone);
-2. it writes the FIFO flush and `BitFraming` as plain writes instead of the
-   official read-modify-write (`PCD_SetRegisterBitMask`).
+| Change | Result |
+|---|---|
+| no `TxModeReg`/`RxModeReg` writes | receiver no longer silenced |
+| `setBits` (read-modify-write) for FIFO flush and `StartSend` | same sequence as `PCD_CommunicateWithPICC` |
+| no early abort on `ErrIRq` | the wait now behaves like the reference |
+
+### Hardware validation (done)
+
+After the fix, on the same unit and a MIFARE Classic 1K card:
+
+```
+UID:0a ee 8d 02
+SAK: 8 ATQA: 4 0
+auth block 0 : ok
+  block0:0a ee 8d 02 6b 08 04 00 62 63 64 65 66 67 68 69
+auth block 4 : ok
+  block4:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+auth block 8 : ok
+```
+
+`Select`, `Authenticate` (key A) and `ReadBlock` are confirmed on hardware.
+`WriteBlock` is exercised by the host tests; a card write was not performed.
 
 ### Board check (examples/pmic)
 
@@ -262,7 +282,7 @@ AXP2101 of the Plus2). That removes the power hypothesis.
 
 | Gap | Effect | Next step |
 |---|---|---|
-| Card exchange not validated yet | `Select`/`ReadBlock` need a card that answers | See the troubleshooting table above |
+| ~~Card exchange not validated~~ | Validated: MIFARE Classic 1K, UID read, key A auth, block read | Done |
 | ~~Only cascade level 1~~ | Fixed in v0.2.0: cascade 2 and 3, so 7-byte and 10-byte UIDs work | Done |
 | No ISO14443-B | The unit supports it, the driver does not | Separate phase |
 | No MIFARE value/ultralight commands | Only block read/write and auth | Add if a project needs them |

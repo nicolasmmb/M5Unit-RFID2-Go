@@ -485,51 +485,31 @@ func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) 
 	if len(frame) > maxFrame {
 		return nil, ErrFrame
 	}
-	// Reference sequence from the MFRC522 datasheet and the Arduino library:
-	// idle, clear the IRQ flags, flush the FIFO, write the frame, set the
-	// framing bits, start the command and only then set StartSend.
+	_ = crcOn // CRC goes in the frame; the chip does not add it (official does the same)
+
+	// Same sequence as PCD_CommunicateWithPICC in the official driver.
 	if err := d.writeReg(regCommand, cmdIdle); err != nil {
 		return nil, ErrNotConnected
 	}
 	if err := d.writeReg(regComIrq, 0x7F); err != nil {
 		return nil, ErrNotConnected
 	}
-	if err := d.writeReg(regFIFOLevel, 0x80); err != nil { // flush
+	if err := d.setBits(regFIFOLevel, 0x80); err != nil { // FlushBuffer
 		return nil, ErrNotConnected
 	}
-
-	if crcOn {
-		if err := d.writeReg(regTxMode, 0x80); err != nil { // TxCRCEn
-			return nil, ErrNotConnected
-		}
-		if err := d.writeReg(regRxMode, 0x80); err != nil { // RxCRCEn
-			return nil, ErrNotConnected
-		}
-	} else {
-		if err := d.writeReg(regTxMode, 0x00); err != nil {
-			return nil, ErrNotConnected
-		}
-		if err := d.writeReg(regRxMode, 0x00); err != nil {
-			return nil, ErrNotConnected
-		}
-	}
-
 	if err := d.writeFIFO(frame); err != nil {
 		return nil, err
 	}
-	// Last bits only, StartSend clear.
 	if err := d.writeReg(regBitFraming, txBits&0x07); err != nil {
 		return nil, ErrNotConnected
 	}
 	if err := d.writeReg(regCommand, cmdTransceive); err != nil {
 		return nil, ErrNotConnected
 	}
-	// StartSend after the command, as in the reference driver.
-	if err := d.writeReg(regBitFraming, bfStartSend|(txBits&0x07)); err != nil {
+	if err := d.setBits(regBitFraming, bfStartSend); err != nil { // StartSend
 		return nil, ErrNotConnected
 	}
 
-	// The official driver waits for RxIRq or IdleIRq (0x30), not only RxIRq.
 	if err := d.waitIRQ(irqRx | irqIdle); err != nil {
 		return nil, err
 	}
@@ -540,6 +520,15 @@ func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) 
 		return nil, nil
 	}
 	return d.readFIFO(rxLen)
+}
+
+// setBits is the read-modify-write used by the official PCD_SetRegisterBitMask.
+func (d *Device) setBits(reg, mask byte) error {
+	v, err := d.readReg(reg)
+	if err != nil {
+		return err
+	}
+	return d.writeReg(reg, v|mask)
 }
 
 // waitIRQ waits for any of the mask bits in ComIrqReg.

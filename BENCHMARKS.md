@@ -52,6 +52,17 @@ make agnostic   # compiles New for pico and arduino-nano33
 | REQA with no card | `ErrTimeout` after 50 ms, as expected |
 | `Select` with a card | not measured yet |
 
+## Hardware validation
+
+| Item | Result |
+|---|---|
+| `Init` on the real unit | OK (register dump matches MFRC522 reset values) |
+| `Version()` | 0x15 |
+| `Select` | UID `0A EE 8D 02`, SAK 0x08, ATQA 0x04 0x00 |
+| `Authenticate` key A `FF..FF` | OK on blocks 0, 4 and 8 |
+| `ReadBlock` | block 0 shows the manufacturer block, block 4/8 read back |
+| Cross-check | the official C++ `MFRC522_I2C` reads the same card |
+
 ## What is still missing
 
 | Item | Why it matters |
