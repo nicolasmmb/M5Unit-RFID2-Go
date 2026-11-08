@@ -1,0 +1,83 @@
+# Paridade com a lib oficial C++ (MFRC522_I2C)
+
+C++ é a fonte da verdade. Os dois lados rodam o **mesmo harness** (mesmas
+chaves, mesma ordem, mesmo formato `chave=valor`) e os logs são comparados.
+
+- C++: `M5-ProductExampleCodes/Unit/RFID/Arduino/RFID/MFRC522_I2C.{cpp,h}`,
+  compilado com PlatformIO (`board = m5stick-c`), só `Wire` + `Serial`.
+- TinyGo: `examples/parity` deste repo.
+- Mesmo unit (WS1850S em 0x28), mesmo cartão: **MIFARE Classic 1K, UID `e0de9a7f`**.
+
+## Resultado (lado a lado)
+
+| Check | C++ oficial | TinyGo | Paridade |
+|---|---|---|---|
+| `version` | `15` | `15` | ✅ |
+| `txcontrol` | `83` | `83` | ✅ |
+| `antenna_gain` (RFCfgReg 7:4) | `40` | `40` | ✅ |
+| `crc_3004` | `26ee` (coprocessador do chip) | `26ee` (software) | ✅ |
+| `reqa_atqa` | `0400` | `0400` | ✅ |
+| `select_uid` | `e0de9a7f` | `e0de9a7f` | ✅ |
+| `select_sak` | `08` | `08` | ✅ |
+| `auth0` | fail | **ok** | ⚠️ diverge |
+| `read0` | — | `e0de9a7fdb080400475955d141103607` | ⚠️ só Go leu |
+| `auth4` / `auth8` | fail | **ok** | ⚠️ diverge |
+| `read4` / `read8` | — | `0000…00` | ⚠️ só Go leu |
+| `stopcrypto` | ok | ok | ✅ |
+| `halt` | `fail` (status ≠ 0) | `ok` | ⚠️ semântica |
+
+## As duas divergências
+
+1. **`auth`**: a lib oficial falha a autenticação com chave A `FF..FF` neste
+   cartão; a nossa passa e lê os blocos 0, 4 e 8. O bloco 0 confere com o
+   manufacturer block do cartão (`e0de9a7f db 08 0400 475955d141103607`), então
+   a leitura é real, não lixo. Causa provável: o cartão é um clone e a oficial
+   faz uma checagem a mais (`ErrorReg & 0x13` ou o `validBits` mal propagado —
+   o mesmo defeito que faz `PICC_RequestA` retornar `STATUS_ERROR` com ATQA
+   válido).
+2. **`halt`**: a oficial retorna o status do transceive, que é **não-zero**
+   porque o HALT não tem resposta (só `IdleIRq`). A nossa retorna `nil` nesse
+   caso, porque `IdleIRq` significa "comando concluído". Comportamento no fio é
+   o mesmo; a diferença é o que se reporta.
+
+## Quirks da lib oficial encontrados no caminho
+
+| Quirk | Efeito | Como tratamos |
+|---|---|---|
+| `PICC_RequestA` devolve `STATUS_ERROR` mesmo com ATQA válido | `IsNewCardPresent()` pode parecer falha | `Select` não depende do status |
+| `PICC_HaltA` devolve status não-zero em sucesso | `halt=fail` enganoso | `Halt` não falha por ausência de resposta |
+
+## Matriz da API
+
+| C++ (`MFRC522`) | Nossa lib | Estado |
+|---|---|---|
+| `PCD_Init`, `PCD_Reset` | `Init`, `Reset` | ✅ validado |
+| `PCD_AntennaOn/Off` | `Antenna(bool)` | ✅ validado |
+| `PCD_ReadRegister` / `PCD_WriteRegister` | `Register` / `SetRegister` | ✅ validado |
+| `PCD_SetRegisterBitMask` (RMW) | `setBits` (interno) | ✅ mesmo comportamento |
+| `PCD_CalculateCRC` (chip) | `crcA` (software) | ✅ valores idênticos |
+| `PCD_CommunicateWithPICC` | `doTransceive` (interno) | ✅ mesma sequência |
+| `PCD_TransceiveData` | `Transceive` | ✅ |
+| `PCD_MIFARE_Transceive` | parte de `doTransceive` + `transceiveBits` | ✅ |
+| `PICC_REQA_or_WUPA` / `PICC_RequestA` / `PICC_WakeupA` | dentro de `Select` (REQA + fallback WUPA) | ✅ validado |
+| `PICC_Select`, `PICC_ReadCardSerial`, cascata 1–3 | `Select` → `Card` | ✅ validado (cascata 2 coberta por teste de host) |
+| `PICC_HaltA` | `Halt` | ✅ validado |
+| `PICC_IsNewCardPresent` | `Select` (retorna erro `ErrNoCard`/`ErrTimeout`) | ✅ |
+| `PCD_Authenticate` (A e B) | `Authenticate` | ✅ chave A validada |
+| `MIFARE_Read` | `ReadBlock` | ✅ validado |
+| `MIFARE_Write` | `WriteBlock` | ⚠️ implementado, **não validado em cartão** |
+| `PCD_StopCrypto1` | `StopCrypto1` | ✅ validado |
+| `PCD_GetAntennaGain` | `Register(0x26) & 0x70` | ⚠️ só leitura, sem setter |
+| `PCD_SetAntennaGain` | — | ❌ falta |
+| `MIFARE_Decrement` / `Increment` / `Restore` / `Transfer` | — | ❌ falta (value blocks) |
+| `MIFARE_Ultralight_ReadPage` / `WritePage` | — | ❌ falta |
+| `PICC_GetTypeName`, `PICC_Dump*`, `PCD_DumpVersionToSerial` | — | ❌ falta (utilitários) |
+| `PICC_Select` público (multi-cartão) | — | ❌ falta |
+
+## Próximos passos de paridade
+
+1. `WriteBlock` num bloco de dados (4) com leitura de volta, nos dois lados.
+2. `SetAntennaGain` + `GetAntennaGain` na API.
+3. Value blocks (`Decrement`/`Increment`/`Restore`/`Transfer`) se algum projeto
+   usar carteira MIFARE.
+4. Ultralight page read/write (precisa de um cartão Ultralight).

@@ -395,6 +395,16 @@ func (d *Device) SelectContext(ctx context.Context) (Card, error) {
 	return c, nil
 }
 
+// StopCrypto1 releases the Crypto1 state after an authenticated operation, so
+// the card can be selected again. The official driver does the same
+// (PCD_StopCrypto1 clears the MFCrypto1On bit).
+func (d *Device) StopCrypto1() error {
+	if err := d.writeReg(regStatus2, 0x00); err != nil {
+		return ErrNotConnected
+	}
+	return nil
+}
+
 // Authenticate runs the MIFARE authentication of block with key.
 //
 // The Crypto1 cipher runs inside the chip, so this is one command and no Go
