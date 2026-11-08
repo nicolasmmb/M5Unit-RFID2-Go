@@ -84,14 +84,24 @@ e corromper a lógica do bloco (dados, não o cartão).
 **Prova**: `Decrement` reduz o saldo, `Restore` volta, `ReadBlock` mostra o
 formato (valor + complemento + backup).
 
-## 6. Anticolisão com dois cartões
+## 6. Anticolisão com dois cartões — ✅ FEITO (2026-11-08)
 
 **EU**: harness que reporta quantos cartões responderam e o UID de cada um.
 **VOCÊ**: encostar **dois cartões ao mesmo tempo** na bobina.
 **RISCO**: zero (só leitura).
-**Prova**: dois UIDs distintos, sem `ErrCollision`.
+**Prova (obtida)**: port bit a bit do `PICC_Select` (lê `CollReg`, escolhe o bit
+= 1) + `SelectAll` com retry e dedupe. Medido no hardware:
 
-## 7. `PICC_Select` público / multi-cartão na API
+| Cartões | Resultado |
+|---|---|
+| 1 | `UID e0de9a7f`, auth e leitura ok (sem regressão) |
+| 2 | `distinct=2 [e0de9a7f] [0aee8d02]` na maioria das passadas |
+| 3 | `distinct=3 [0aee8d02] [39819102] [e0de9a7f]` em algumas passadas |
+
+Com cartões empilhados as respostas são intermitentes (dividem a energia do
+campo), então o resultado depende da passada — documentado no README.
+
+## 7. `SelectAll` (multi-cartão) — ✅ FEITO (2026-11-08)
 
 **EU**: seção `SelectAll()` que devolve todos os cartões em campo.
 **VOCÊ**: os dois cartões do item 6.

@@ -505,6 +505,27 @@ func (d *Device) selectLocked(c *Card, knownBits uint8, knownUID []byte) (Card, 
 	}
 }
 
+// containsCard reports whether c is already in list (same length and bytes).
+func containsCard(list []Card, c Card) bool {
+	n := c.UIDLength()
+	for i := range list {
+		if list[i].UIDLength() != n {
+			continue
+		}
+		same := true
+		for j := 0; j < n; j++ {
+			if list[i].UID[j] != c.UID[j] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return true
+		}
+	}
+	return false
+}
+
 // SelectAll enumerates every card in the field.
 //
 // It selects one card, HALTs it (so it stops answering) and repeats. The cards
@@ -514,17 +535,47 @@ func (d *Device) SelectAll(max int) ([]Card, error) {
 	if max <= 0 {
 		max = 8
 	}
+	// With several cards the answers are intermittent: collisions and timeouts
+	// happen, so every step retries before giving up.
+	const attempts = 6
+	// The card that answers is not deterministic, so the loop needs more tries
+	// than the number of cards: it stops after three known UIDs in a row.
+	budget := max * 12
 	var out []Card
-	for i := 0; i < max; i++ {
-		c, err := d.Select()
-		if err != nil {
-			if len(out) > 0 {
-				return out, nil // no more cards
+	var lastErr error
+	dups := 0
+	for i := 0; i < budget; i++ {
+		found := false
+		var c Card
+		for a := 0; a < attempts; a++ {
+			cc, err := d.Select()
+			if err == nil {
+				c, found = cc, true
+				break
 			}
-			return nil, err
+			lastErr = err
+			time.Sleep(20 * time.Millisecond)
 		}
-		out = append(out, c)
+		if !found {
+			if len(out) > 0 {
+				return out, nil // that is all the cards we can see
+			}
+			return nil, lastErr
+		}
 		_ = d.Halt()
+		time.Sleep(20 * time.Millisecond)
+
+		// HALT is not definitive here: the WUPA fallback in Select wakes a
+		// halted card, so the same UID comes back. Keep distinct UIDs only.
+		if !containsCard(out, c) {
+			out = append(out, c)
+			dups = 0
+		} else {
+			dups++
+			if dups >= 6 { // six known UIDs in a row: no new cards
+				return out, nil
+			}
+		}
 	}
 	return out, nil
 }
