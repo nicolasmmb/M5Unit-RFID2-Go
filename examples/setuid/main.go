@@ -25,7 +25,7 @@ import (
 const hexDigit = "0123456789abcdef"
 
 // newUID is what the card will present after the write.
-var newUID = [4]byte{0xCA, 0xFE, 0xBA, 0xBE}
+var newUID = [4]byte{0xE0, 0xDE, 0x9A, 0x7F}
 
 func hex2(b byte) { print(string(hexDigit[b>>4]), string(hexDigit[b&0x0f])) }
 

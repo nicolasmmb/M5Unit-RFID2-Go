@@ -68,6 +68,7 @@ const (
 	regTReloadH   = 0x2C
 	regTReloadL   = 0x2D
 	regVersion    = 0x37
+	regRFCfg      = 0x26 // receiver gain, bits 6:4
 )
 
 // Commands of the PCD.

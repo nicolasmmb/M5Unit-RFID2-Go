@@ -99,6 +99,7 @@ _ = d.Halt()
 | `WriteBlock(block, data) error` | Writes one block |
 | `Halt() error` | HALT the card in the field |
 | `SetTimeout(d)` | Wait limit of one transceive (default 50 ms) |
+| `SetAntennaGain(Gain)` / `GetAntennaGain()` | Receiver gain 18–48 dB (RFCfgReg bits 6:4) |
 
 `Card` carries `UID [4]byte`, `SAK byte`, `ATQA [2]byte`.
 
@@ -279,6 +280,17 @@ rfid2 version: 21
 
 So the Grove 5 V rail is on and the module is a StickC Plus v1 (AXP192, not the
 AXP2101 of the Plus2). That removes the power hypothesis.
+
+## Antenna gain (measured)
+
+`SetAntennaGain` writes RxGain[2:0] of `RFCfgReg` exactly like
+`PCD_SetAntennaGain`, and `GetAntennaGain` reads it back (18 dB → 48 dB works).
+
+The measured read range, however, did **not** improve: about 3 finger widths
+with 18 dB and the same with 48 dB, and at 48 dB the reader became noisier
+(needed a more precise position for a stable read). The antenna, not the
+receiver gain, is the limit on this module. 38 dB (factory value) is the
+practical setting.
 
 ## Known gaps
 

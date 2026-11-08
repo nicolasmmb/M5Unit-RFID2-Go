@@ -23,14 +23,22 @@ original restaurado com `restore=PASS`.
 **Nota**: o lado C++ não serviu de referência aqui porque a lib oficial **falha
 no auth** neste cartão clone; a referência foi o protocolo MIFARE (duas fases).
 
-## 2. `SetAntennaGain` / `GetAntennaGain`
+## 2. `SetAntennaGain` / `GetAntennaGain` — ✅ FEITO (2026-11-08)
 
 **EU**: exponho `SetAntennaGain(gain)` e `GetAntennaGain()` na lib (bits 6:4 do
 `RFCfgReg`), com teste de host.
 **VOCÊ**: encosta o cartão; eu meço o alcance com ganho mínimo vs máximo
 (afastando o cartão em passos de 5 mm).
 **RISCO**: zero (só registrador).
-**Prova**: leitura de volta do registrador e diferença de alcance.
+**Prova (obtida)**: o registrador grava e lê de volta (`Gain18dB` → `48` em
+`RFCfgReg`), mas o **alcance medido não mudou**: ~3 dedos com 18 dB e ~3 dedos
+com 48 dB. No ganho máximo o leitor ficou mais sensível a ruído (exigia mais
+proximidade para leitura estável), o que é o comportamento esperado quando o
+limitante é a antena e não o ganho do receptor.
+
+Conclusão: `SetAntennaGain` funciona no registrador (paridade com
+`PCD_SetAntennaGain`), mas neste módulo o ganho **não aumenta o alcance**.
+Deixar em 38 dB (valor de fábrica) é a escolha prática.
 
 ## 3. Utilitários (`GetTypeName`, dump) — ✅ FEITO (2026-11-08)
 
