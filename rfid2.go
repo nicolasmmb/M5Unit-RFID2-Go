@@ -466,6 +466,11 @@ func (d *Device) ReadBlock(block byte) ([16]byte, error) {
 // and a second ACK. Sending everything in one frame leaves the card waiting for
 // the second phase and it stops answering.
 func (d *Device) WriteBlock(block byte, data [16]byte) error {
+	// Safety: block 0 is the manufacturer block (read only) and every fourth
+	// block is a sector trailer. A wrong trailer can lock the card forever.
+	if block == 0 || block%4 == 3 {
+		return ErrBadBlock
+	}
 	// Phase 1: command + block + CRC.
 	d.tx[0] = piccWrite
 	d.tx[1] = block

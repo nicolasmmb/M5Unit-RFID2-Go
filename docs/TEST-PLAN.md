@@ -32,13 +32,14 @@ no auth** neste cartão clone; a referência foi o protocolo MIFARE (duas fases)
 **RISCO**: zero (só registrador).
 **Prova**: leitura de volta do registrador e diferença de alcance.
 
-## 3. Utilitários que faltam (`GetTypeName`, dump)
+## 3. Utilitários (`GetTypeName`, dump) — ✅ FEITO (2026-11-08)
 
 **EU**: `Card.Type()` a partir do SAK/ATQA (Classic 1K/4K, Ultralight, NTAG) e
 `ReadBlock`/`String` helpers, com testes de host usando SAK/ATQA conhecidos.
 **VOCÊ**: nada.
 **RISCO**: zero.
-**Prova**: tabela SAK+ATQA → tipo conferida contra o cartão real.
+**Prova (obtida)**: `Card.Type()` com a tabela do `PICC_GetType`, testada
+contra o cartão real (SAK 0x08 → MIFARE Classic 1K) e com 11 casos de host.
 
 ## 4. Ultralight page read/write
 
@@ -74,7 +75,7 @@ formato (valor + complemento + backup).
 **VOCÊ**: os dois cartões do item 6.
 **RISCO**: zero.
 
-## 8. Robustez (sem cartão)
+## 8. Robustez (sem cartão) — ✅ FEITO (2026-11-08)
 
 **EU**: testes de host para timeout, NACK, `ErrorReg` com bits fatais, cartão
 que sai do campo no meio do auth, e `WriteBlock` recusado por bloco inválido.
@@ -89,7 +90,7 @@ Teste de estresse: 1000 selects seguidos sem vazar (heap estável).
 **VOCÊ**: encosta o cartão uma vez.
 **Prova**: números reais para o BENCHMARKS (hoje só há host).
 
-## 10. Documentação da placa
+## 10. Documentação da placa — ✅ FEITO (2026-11-08)
 
 **EU**: corrigir o README: a placa de teste é **StickC Plus v1** (AXP192), não
 Plus2, e o unit é o **RFID2 (U031-B)**.
