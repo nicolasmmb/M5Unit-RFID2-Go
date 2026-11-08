@@ -201,6 +201,20 @@ Open hypotheses, in order:
 Tried without change: `RxGainReg` 0x87 (48 dB, read-back returns 0 on this
 clone), `Tx1CW` cleared, ISO14443-B REQB, WUPA wake-up, 20 ms field settle.
 
+### Board check (examples/pmic)
+
+The diagnostic firmware scans the internal bus:
+
+```
+scan: 0x51 0x68        <- AXP192 + MPU6886: this is a StickC **Plus v1**, not v2
+axp192 reg0x12: 0x51   <- bit 6 (EXTEN, the Grove 5 V rail) is already enabled
+grove scan: 0x28       <- RFID2 answers
+rfid2 version: 21
+```
+
+So the Grove 5 V rail is on and the module is a StickC Plus v1 (AXP192, not the
+AXP2101 of the Plus2). That removes the power hypothesis.
+
 ## Known gaps
 
 | Gap | Effect | Next step |
