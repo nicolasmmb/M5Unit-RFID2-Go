@@ -120,8 +120,12 @@ func main() {
 		println()
 		println("SAK:", card.SAK, "ATQA:", card.ATQA[0], card.ATQA[1])
 
+		// MIFARE authentication uses the first four UID bytes.
+		var uid4 [4]byte
+		copy(uid4[:], card.UIDBytes())
+
 		for _, blk := range []byte{0, 4, 8} {
-			if err := d.Authenticate(blk, rfid2.KeyA, key, card.UID); err != nil {
+			if err := d.Authenticate(blk, rfid2.KeyA, key, uid4); err != nil {
 				println("auth block", blk, ":", err.Error())
 				continue
 			}
