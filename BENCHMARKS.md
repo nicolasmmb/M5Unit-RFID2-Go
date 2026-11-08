@@ -63,6 +63,31 @@ make agnostic   # compiles New for pico and arduino-nano33
 | `ReadBlock` | block 0 shows the manufacturer block, block 4/8 read back |
 | Cross-check | the official C++ `MFRC522_I2C` reads the same card |
 
+## Device timing (measured, examples/timing)
+
+M5StickC Plus v1 + Unit RFID2 + MIFARE Classic 1K, key A auth on block 4, CRC
+checked on the answer:
+
+| Operation | 100 kHz | 400 kHz |
+|---|---:|---:|
+| `Select` (REQA + anticollision + SELECT) | 28 524 µs | **11 104 µs** |
+| `Authenticate` | 4 705 µs | **3 112 µs** |
+| `ReadBlock` (18 bytes + CRC) | 9 145 µs | **5 113 µs** |
+| full cycle | ~42 ms | **~19,3 ms** (~50 cycles/s) |
+
+Averages over 40 samples at 400 kHz; the `Select` samples ranged 10 778–14 900 µs,
+the outliers being collision retries.
+
+Findings:
+
+- **The unit does work at 400 kHz** (the first attempt only failed because the
+  card was not on the coil), and it is 1,5–2,5× faster than 100 kHz. 400 kHz is
+  the recommended setting.
+- Most of the time is I2C register round-trips: one transceive needs about eight
+  register reads/writes, and `Select` does three transceives.
+- The three operations together cost ~19 ms, so a firmware can read a card
+  about 50 times per second.
+
 ## What is still missing
 
 | Item | Why it matters |

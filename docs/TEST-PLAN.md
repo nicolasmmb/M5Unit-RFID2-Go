@@ -115,12 +115,14 @@ Teste de estresse: 1000 selects seguidos sem vazar (heap estável).
 **VOCÊ**: nada.
 **RISCO**: zero.
 
-## 9. Medições de tempo no alvo
+## 9. Medições de tempo no alvo — ✅ FEITO (2026-11-08)
 
 **EU**: `examples/timing` que imprime ms de `Select`, `Authenticate` e
 `ReadBlock`.
 **VOCÊ**: encosta o cartão uma vez.
-**Prova**: números reais para o BENCHMARKS (hoje só há host).
+**Prova (obtida)**: 100 kHz → `Select` 28,5 ms, `Auth` 4,7 ms, `Read` 9,1 ms.
+400 kHz → **11,1 / 3,1 / 5,1 ms**, ciclo de ~19,3 ms (~50 leituras/s). O unit
+**funciona a 400 kHz**, então a recomendação é 400 kHz. Números no BENCHMARKS.
 
 ## 10. Documentação da placa — ✅ FEITO (2026-11-08)
 

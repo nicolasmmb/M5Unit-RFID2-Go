@@ -148,7 +148,12 @@ See [BENCHMARKS.md](BENCHMARKS.md). Host, fake chip:
 | `readFIFO` (18 bytes) | 17,1 | 0 |
 | transceive sequence (no card wait) | 68,9 | 0 |
 
-RAM: `Device` 104 bytes. Flash: `examples/read` 22.3 KB on `m5stick-c`.
+RAM: `Device` 104 bytes. Flash: `examples/read` 36.1 KB on `m5stick-c`.
+
+Measured on the unit (MIFARE Classic 1K, key A on block 4): `Select` 11.1 ms,
+`Authenticate` 3.1 ms, `ReadBlock` 5.1 ms at **400 kHz** — a full cycle of
+19.3 ms, about 50 reads per second. At 100 kHz the same cycle takes 42 ms, so
+configure the bus at 400 kHz.
 
 ## Validation
 
