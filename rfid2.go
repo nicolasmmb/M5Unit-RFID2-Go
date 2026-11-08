@@ -553,7 +553,10 @@ func (d *Device) waitIRQ(mask byte) error {
 		if v&mask != 0 {
 			return nil
 		}
-		if v&irqErr != 0 || v&irqTimer != 0 {
+		// Only the timer means "nothing arrived". The official driver ignores
+		// ErrIRq here and reads ErrorReg after the wait; aborting on ErrIRq
+		// returned a timeout before the card could answer.
+		if v&irqTimer != 0 {
 			return ErrTimeout
 		}
 		if time.Now().After(deadline) {

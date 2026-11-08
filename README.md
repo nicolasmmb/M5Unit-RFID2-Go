@@ -218,6 +218,32 @@ After a line-by-line reading of `MFRC522_I2C.cpp`, these were aligned:
 With all of that the behaviour on the unit is unchanged: the frame goes out
 (TxIRq), the FIFO is clean and no card answers.
 
+### Cross-check with the official C++ library
+
+The same unit was flashed with a PlatformIO sketch that uses M5's own
+`MFRC522_I2C.cpp` (from `M5-ProductExampleCodes`), no LCD, only `Wire`:
+
+```
+== official MFRC522_I2C library ==
+version   = 0x15
+TxControl = 0x83
+TMode     = 0x80
+reset regs 00-0F: 00 20 80 00 14 00 00 21 00 00 00 08 10 00 A0 00
+REQA status=1 ATQA=04 00
+ComIrq=0x64 ErrorReg=0x00 FIFO=0
+```
+
+`status=1` is STATUS_OK, `ATQA 04 00` is a MIFARE Ultralight and
+`ComIrq=0x64` carries **RxIRq**. So the unit and the card work, and the
+remaining defect is in this Go driver's transceive path.
+
+Places where the Go driver still differs from the official sequence and that
+are the next suspects:
+
+1. it writes `TxModeReg` and `RxModeReg` (the official leaves them alone);
+2. it writes the FIFO flush and `BitFraming` as plain writes instead of the
+   official read-modify-write (`PCD_SetRegisterBitMask`).
+
 ### Board check (examples/pmic)
 
 The diagnostic firmware scans the internal bus:
