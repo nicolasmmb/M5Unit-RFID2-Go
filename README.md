@@ -155,6 +155,11 @@ Measured on the unit (MIFARE Classic 1K, key A on block 4): `Select` 11.1 ms,
 19.3 ms, about 50 reads per second. At 100 kHz the same cycle takes 42 ms, so
 configure the bus at 400 kHz.
 
+Reliability: 500 cycles of select + auth + read at 400 kHz ran with **zero
+errors** (CRC, protocol, timeout, bus). The limit at that speed is the Grove
+cable, not the chip: with a long cable or a PaHub, use 100 kHz. A marginal bus
+shows up as `ErrCRC`/`ErrProtocol`/`ErrNotConnected`, never as wrong data.
+
 ## Validation
 
 ```bash

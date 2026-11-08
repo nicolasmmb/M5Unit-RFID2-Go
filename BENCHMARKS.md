@@ -88,6 +88,50 @@ Findings:
 - The three operations together cost ~19 ms, so a firmware can read a card
   about 50 times per second.
 
+## Reliability at 400 kHz (measured)
+
+`examples/soak`: 500 cycles of Select + Authenticate + ReadBlock with a MIFARE
+Classic, I2C at 400 kHz, counting every error type:
+
+```
+ok=500  crc=0  proto=0  timeout=0  bus=0  other=0
+error_rate_ppm=0   avg_cycle_us=22455   (~44 cycles/s)
+```
+
+Zero errors in 500 cycles. Zero out of 500 does not prove infinity: the upper
+bound at 95 % confidence is about 6 000 ppm, so a longer soak would tighten it.
+
+### Why 400 kHz is still worth a caveat
+
+The chip allows 400 kHz; the **Grove cable** is the real limit.
+
+| Risk | Effect at 400 kHz |
+|---|---|
+| 10 kΩ pull-ups on the module | rise time ~7 µs against a 1,25 µs bit — tight margin |
+| cable capacitance (50–100 pF, 20 cm) | worse rise time |
+| long cable, damaged cable, PaHub in series | adds capacitance → intermittent NACKs |
+
+What protects the caller: the driver never returns corrupted data.
+
+| Failure | Result |
+|---|---|
+| answer corrupted | `ErrCRC` (CRC_A verified in software) |
+| frame or BCC wrong | `ErrProtocol` |
+| bus NACK / no ACK | `ErrNotConnected` |
+
+So a marginal bus degrades into **errors**, never into a wrong UID or block.
+
+### Recommendation
+
+| Environment | Speed |
+|---|---|
+| short Grove cable, no hub | **400 kHz** (measured: 0 errors, ~44 cycles/s) |
+| long cable, hub, electrically noisy | **100 kHz** |
+| maximum robustness | 100 kHz plus retry on `errors.Is` |
+
+If `ErrNotConnected` starts appearing in the field, the first action is dropping
+to 100 kHz: it is the classic symptom of insufficient pull-up, not a dead chip.
+
 ## What is still missing
 
 | Item | Why it matters |
