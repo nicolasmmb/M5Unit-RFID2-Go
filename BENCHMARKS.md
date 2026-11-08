@@ -43,6 +43,15 @@ make agnostic   # compiles New for pico and arduino-nano33
   **0 allocs/op**.
 - `New` allocates the `Device` once.
 
+## Hardware measurements (M5StickC Plus2 + Unit RFID2)
+
+| Item | Result |
+|---|---|
+| `Init` on the real unit | OK (reset, timer, antenna, register write + read-back) |
+| `Version()` | **0x15** (WS1850S batch; not 0x91/0x92) |
+| REQA with no card | `ErrTimeout` after 50 ms, as expected |
+| `Select` with a card | not measured yet |
+
 ## What is still missing
 
 | Item | Why it matters |

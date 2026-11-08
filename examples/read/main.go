@@ -27,6 +27,9 @@ func main() {
 	d := rfid2.New(i2c)
 	if err := d.Init(); err != nil {
 		println("rfid2:", err.Error())
+		if v, e := d.Version(); e == nil {
+			println("version register:", v)
+		}
 		return
 	}
 	if v, err := d.Version(); err == nil {

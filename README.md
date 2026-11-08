@@ -39,7 +39,9 @@ host.
 | Range | < 20 mm |
 
 I2C protocol (same as the C library): write `[register, value]`; read with
-`[register]` followed by the bytes. No register address bit shifting.
+`[register]` **followed by a STOP**, then a separate read transaction. The unit
+does not accept a repeated start for the register read — this was found on real
+hardware and is the reason every register read is two transactions.
 
 ## Install
 
@@ -112,6 +114,9 @@ Compare with `errors.Is`.
   (command + block + 16 data + 2 CRC) and expect a 4-bit ACK `0x0A`.
 - Authentication failure is read from `ErrorReg` with the same mask as the C
   driver (`0x1B`: ProtocolErr, ParityErr, CollErr, BufferOvfl).
+- **`VersionReg` is not a reliable presence test.** The real unit reports
+  **0x15**, not the 0x91/0x92 of an MFRC522. `Init` therefore validates the chip
+  by writing `TModeReg` and reading it back.
 - Only cascade level 1 is implemented, which covers MIFARE Classic 1K/4K and
   NTAG with a 4-byte UID. 7-byte UIDs (double cascade) are not handled yet.
 - The buffer for the FIFO write is separate from the frame buffer, because the
@@ -139,11 +144,32 @@ make read PORT=/dev/cu.usbserial-XXXX
 
 `make agnostic` compiles `New` for `pico` and `arduino-nano33`; CI repeats it.
 
+## Hardware results
+
+Verified on an M5StickC Plus2 with a real Unit RFID2:
+
+```
+version: 21          <- VersionReg really reports 0x15 on this batch
+card: rfid2: timeout <- Init ok, REQA sent, no card in the field
+```
+
+So `Init` (reset, timer, antenna, register write + read-back) and the REQA
+transceive work on the unit. `Select`, `Authenticate` and the block commands
+still need a card on the antenna to be confirmed.
+
+Two hardware facts that changed the driver:
+
+1. The register read needs a **STOP between the address write and the read**;
+   a repeated start returns garbage. Every register and FIFO read now uses two
+   `Tx` calls, like the C library.
+2. `VersionReg` returns **0x15**, not 0x91/0x92, so `Init` checks the chip with
+   a write/read-back instead.
+
 ## Known gaps
 
 | Gap | Effect | Next step |
 |---|---|---|
-| Not validated on hardware yet | Card exchange is unproven on the unit | Flash `examples/read` with a card |
+| Card exchange not validated yet | `Select`/`ReadBlock` need a physical card | Flash `examples/read` with a MIFARE card |
 | Only cascade level 1 | 7-byte and 10-byte UIDs (NTAG21x, some cards) unsupported | Add cascade 2/3 in v0.2.0 |
 | No ISO14443-B | The unit supports it, the driver does not | Separate phase |
 | No MIFARE value/ultralight commands | Only block read/write and auth | Add if a project needs them |

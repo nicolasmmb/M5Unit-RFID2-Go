@@ -158,8 +158,11 @@ func (d *Device) SetTimeout(t time.Duration) {
 	d.timeout = t
 }
 
-// Version returns the version register. 0x91 and 0x92 are MFRC522 v1/v2 and
-// are also what the WS1850S reports.
+// Version returns the version register.
+//
+// Do not trust it for presence: MFRC522 reports 0x91/0x92, but WS1850S batches
+// report other values (0x15 was measured on a real Unit RFID2). Init validates
+// the chip with a register write + read-back instead.
 func (d *Device) Version() (byte, error) {
 	return d.readReg(regVersion)
 }
@@ -176,17 +179,20 @@ func (d *Device) Init() error {
 	}
 	time.Sleep(50 * time.Millisecond)
 
-	v, err := d.readReg(regVersion)
+	// Timer: TAuto=1, TPrescalerEven=1, TPrescaler 169 -> 40.8 kHz.
+	//
+	// This write is also the presence test: some WS1850S batches do not report
+	// 0x91/0x92 in VersionReg, so a register write + read-back is the reliable
+	// check that the chip is there and the I2C mapping is right.
+	if err := d.writeReg(regTMode, 0x8D); err != nil {
+		return ErrNotConnected
+	}
+	back, err := d.readReg(regTMode)
 	if err != nil {
 		return ErrNotConnected
 	}
-	if v != 0x91 && v != 0x92 {
+	if back != 0x8D {
 		return ErrBadVersion
-	}
-
-	// Timer: TAuto=1, TPrescalerEven=1, TPrescaler 169 -> 40.8 kHz.
-	if err := d.writeReg(regTMode, 0x8D); err != nil {
-		return ErrNotConnected
 	}
 	if err := d.writeReg(regTPrescaler, 0x3E); err != nil {
 		return ErrNotConnected
@@ -491,15 +497,24 @@ func (d *Device) readFIFO(n int) ([]byte, error) {
 		return nil, ErrFrame
 	}
 	d.tx[0] = regFIFOData
-	if err := d.bus.Tx(d.addr, d.tx[:1], d.rx[:n]); err != nil {
+	if err := d.bus.Tx(d.addr, d.tx[:1], nil); err != nil {
+		return nil, ErrNotConnected
+	}
+	if err := d.bus.Tx(d.addr, nil, d.rx[:n]); err != nil {
 		return nil, ErrNotConnected
 	}
 	return d.rx[:n], nil
 }
 
 func (d *Device) readReg(reg byte) (byte, error) {
+	// Two transactions, with a STOP in between, like the C library
+	// (endTransmission then requestFrom). The unit's I2C bridge does not accept
+	// a repeated start for the register read.
 	d.tx[0] = reg
-	if err := d.bus.Tx(d.addr, d.tx[:1], d.rx[:1]); err != nil {
+	if err := d.bus.Tx(d.addr, d.tx[:1], nil); err != nil {
+		return 0, err
+	}
+	if err := d.bus.Tx(d.addr, nil, d.rx[:1]); err != nil {
 		return 0, err
 	}
 	return d.rx[0], nil

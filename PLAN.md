@@ -4,7 +4,7 @@ Driver Go do **Unit RFID2** (SKU U031-B): WS1850S (registradores MFRC522),
 13,56 MHz, I2C em 0x28. 100% Go.
 
 - Módulo: `github.com/nicolasmmb/M5Unit-RFID2-Go`
-- Estado: v0.1.0 implementada. Falta validação em hardware.
+- Estado: v0.1.1. `Init` validado em hardware; falta cartão para select/read.
 
 ## 1. Hardware e protocolo
 
@@ -30,7 +30,15 @@ benchmarks, exemplo, CI com gate de agnosticismo.
 Fora: cascata 2/3 (UID de 7/10 bytes), ISO14443-B, comandos de valor do MIFARE,
 Ultralight, e o modo de descoberta contínua.
 
-## 3. Decisões
+## 3. Achados de hardware (2026-11-08)
+
+1. A leitura de registrador exige **STOP** entre o write do endereço e o read.
+   Com repeated start o unit devolve lixo. Toda leitura usa duas transações,
+   igual ao C (`endTransmission` + `requestFrom`).
+2. O `VersionReg` do WS1850S desta unidade devolve **0x15**, não 0x91/0x92.
+   Por isso o `Init` valida o chip com write + read-back de `TModeReg`.
+
+## 4. Decisões
 
 1. **CRC_A em software** (0x8408 refletido, init 0x6363). Motivo: determinístico
    e testável no host; o vetor real `50 00 57 CD` (HALT) está no teste.
@@ -59,7 +67,8 @@ Emulador de chip com registradores, FIFO e cartão roteirizado:
 - [x] Núcleo, CRC, select, auth, read, write, halt.
 - [x] Testes, contratos, benchmarks.
 - [x] README, BENCHMARKS, Makefile, CI, exemplo.
-- [ ] Validação em hardware com um cartão.
+- [x] Validação parcial em hardware: `Init`, versão (0x15) e REQA sem cartão.
+- [ ] Validação com um cartão (select, auth, read, write).
 - [ ] Publicar e tag `v0.1.0`.
 
 ## 6. Pendências

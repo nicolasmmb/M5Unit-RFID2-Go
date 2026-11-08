@@ -15,17 +15,19 @@ var errNack = errors.New("fake: nack")
 type responder func(frame []byte, txBits byte) (resp []byte, irq, errReg byte)
 
 type fakeChip struct {
-	mu      sync.Mutex
-	regs    [0x40]byte
-	frame   []byte
-	resp    []byte
-	irq     byte
-	errReg  byte
-	version byte
-	dead    bool
-	txBits  byte
-	respFn  responder
-	frames  [][]byte
+	mu         sync.Mutex
+	regs       [0x40]byte
+	pendingReg byte
+	frame      []byte
+	resp       []byte
+	irq        byte
+	errReg     byte
+	version    byte
+	dead       bool
+	dropWrites bool
+	txBits     byte
+	respFn     responder
+	frames     [][]byte
 }
 
 func newChip() *fakeChip {
@@ -40,13 +42,13 @@ func (f *fakeChip) Tx(addr uint16, w, r []byte) error {
 	if f.dead || addr != DefaultAddress {
 		return errNack
 	}
-	if len(w) == 0 {
-		return nil
-	}
-	reg := w[0]
 
-	if len(w) == 1 && len(r) > 0 {
-		switch reg {
+	// Read phase of a split register read.
+	if len(w) == 0 {
+		if len(r) == 0 {
+			return nil
+		}
+		switch f.pendingReg {
 		case regFIFOData:
 			for i := range r {
 				if i < len(f.resp) {
@@ -62,18 +64,19 @@ func (f *fakeChip) Tx(addr uint16, w, r []byte) error {
 		case regError:
 			r[0] = f.errReg
 		default:
-			r[0] = f.regs[reg]
+			r[0] = f.regs[f.pendingReg]
 		}
 		return nil
 	}
 
-	if reg == regFIFOData {
-		if len(w) > 1 {
-			f.frame = append(f.frame, w[1:]...)
-		}
+	reg := w[0]
+	if len(w) == 1 {
+		f.pendingReg = reg
 		return nil
 	}
-	if len(w) < 2 {
+
+	if reg == regFIFOData {
+		f.frame = append(f.frame, w[1:]...)
 		return nil
 	}
 	switch reg {
@@ -90,7 +93,9 @@ func (f *fakeChip) Tx(addr uint16, w, r []byte) error {
 			f.resp = nil
 		}
 	default:
-		f.regs[reg] = w[1]
+		if !f.dropWrites {
+			f.regs[reg] = w[1]
+		}
 	}
 	return nil
 }
@@ -176,11 +181,22 @@ func TestInit(t *testing.T) {
 		t.Fatalf("timers not set: mode %#02x tmode %#02x", f.regs[regMode], f.regs[regTMode])
 	}
 
-	// Wrong version.
+	// A different version byte is not an error: the WS1850S reports 0x15.
 	f2 := newChip()
-	f2.version = 0x12
-	if err := New(f2).Init(); err != ErrBadVersion {
-		t.Fatalf("bad version = %v", err)
+	f2.version = 0x15
+	d2 := New(f2)
+	if err := d2.Init(); err != nil {
+		t.Fatalf("version 0x15: %v", err)
+	}
+	if v, _ := d2.Version(); v != 0x15 {
+		t.Fatalf("Version = %#02x, want 0x15", v)
+	}
+
+	// A chip that does not keep a register value is rejected.
+	f4 := newChip()
+	f4.dropWrites = true
+	if err := New(f4).Init(); err != ErrBadVersion {
+		t.Fatalf("read-back mismatch = %v", err)
 	}
 
 	// Dead and nil bus.
@@ -398,10 +414,39 @@ func TestCRC(t *testing.T) {
 
 // silentChip answers without allocating: fixed registers, fixed responses, no
 // slices, so it can measure the driver instead of the fake.
-type silentChip struct{ regs [0x40]byte }
+type silentChip struct {
+	regs    [0x40]byte
+	pending byte
+}
 
 func (c *silentChip) Tx(addr uint16, w, r []byte) error {
-	if addr != DefaultAddress || len(w) == 0 {
+	if addr != DefaultAddress {
+		return nil
+	}
+	if len(w) == 0 {
+		// Read phase of a split register read.
+		switch c.pending {
+		case regComIrq:
+			if len(r) > 0 {
+				r[0] = irqRx
+			}
+		case regError:
+			if len(r) > 0 {
+				r[0] = 0
+			}
+		case regFIFOLevel:
+			if len(r) > 0 {
+				r[0] = maxFrame
+			}
+		case regFIFOData:
+			for i := range r {
+				r[i] = byte(i)
+			}
+		default:
+			if len(r) > 0 {
+				r[0] = c.regs[c.pending]
+			}
+		}
 		return nil
 	}
 	reg := w[0]
@@ -422,13 +467,16 @@ func (c *silentChip) Tx(addr uint16, w, r []byte) error {
 		}
 		return nil
 	}
+	if len(w) == 1 {
+		c.pending = reg
+		return nil
+	}
 	if reg == regCommand {
 		switch w[1] {
 		case cmdSoftReset:
 			c.regs[regVersion] = 0x92
 		case cmdTransceive:
-			// The canned answers below keep Read, Select and Write happy: the
-			// FIFO already holds bytes and the IRQ is set.
+			// The canned answers keep Read, Select and Write happy.
 		}
 		return nil
 	}
