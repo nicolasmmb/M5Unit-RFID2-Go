@@ -44,9 +44,15 @@ Ultralight, e o modo de descoberta contínua.
    buffer do quadro, e um write de registrador dentro do transceive apagava o
    quadro (o HALT saía `13 00 57 CD` em vez de `50 00 57 CD`).
 
-Estado: `Init`, antena e transmissão comprovados (TxIRq em toda tentativa,
-FIFO volta a 0). Nenhum cartão respondeu ainda: o `RxIRq` nunca dispara com os
-cartões disponíveis. Falta um cartão 13,56 MHz ISO14443-A conhecido.
+Estado: `Init`, antena e transmissão comprovados (`TxIRq`, FIFO 0, `ErrorReg`
+0). Nenhum cartão respondeu ainda — nem cartões físicos nem um Flipper Zero
+emulando. O `RxIRq` nunca dispara. Tentado sem efeito: `RxGainReg` 0x87, `Tx1CW`
+limpo, REQB (tipo B), WUPA, settle de 20 ms.
+
+Hipóteses abertas, em ordem: (1) cartão/emulador não é 13,56 MHz ISO14443-A;
+(2) seção de RF do unit (TxIRq não prova que a bobina irradia); (3) distância e
+alinhamento. Para separar (1) de (2) é preciso um cartão MIFARE Classic 1K
+físico ou o mesmo unit em outra placa.
 
 ## 4. Decisões
 
@@ -83,7 +89,7 @@ Emulador de chip com registradores, FIFO e cartão roteirizado:
 
 ## 6. Pendências
 
-- [ ] Flash do `examples/read` com um cartão e conferir UID/bloco.
+- [ ] Flash do `examples/read` com um cartão que responda (ver troubleshooting).
 - [ ] Cascata 2/3 para UID de 7 bytes (NTAG21x).
 - [ ] Medir tempos reais de select/read.
 - [ ] ISO14443-B se algum projeto precisar.

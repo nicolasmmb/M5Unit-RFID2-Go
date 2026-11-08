@@ -171,17 +171,41 @@ Facts found on real hardware that changed the driver:
    frame buffer, so a register write inside a transceive overwrote the frame
    (the HALT frame arrived as `13 00 57 CD` instead of `50 00 57 CD`).
 
-Current status: `Init`, the antenna and the transmit path are verified on the
-unit (TxIRq fires on every attempt, FIFO returns to 0). No card answered yet:
-with the cards available, `RxIRq` never fires. That needs a known 13.56 MHz
-ISO14443-A card (MIFARE Classic 1K/4K or NTAG) to close the loop, or the unit's
-RF section needs a check.
+## Troubleshooting: no card answers
+
+Measured on the unit with cards and with a Flipper Zero emulating a card:
+
+| Register | Value | Meaning |
+|---|---|---|
+| `VersionReg` | 0x15 | chip is there (not 0x91/0x92, normal for this batch) |
+| `TxControlReg` | 0x03 | RF bits on |
+| `TModeReg` read-back | 0x8D | writes land |
+| `ErrorReg` | 0x00 | no protocol, parity or collision error |
+| `ComIrqReg` | 0x45 | **TxIRq** + LoAlert + TimerIRq: frame went out, timer expired |
+| `FIFOLevelReg` | 0x00 | FIFO flushed correctly |
+
+So the digital path is proven end to end: register access, command execution,
+frame transmission and FIFO handling. `RxIRq` never fires, which means the
+receiver never sees a card answer.
+
+Open hypotheses, in order:
+
+1. **Card or emulator is not 13.56 MHz ISO14443-A.** A Flipper in the `RFID`
+   app emulates 125 kHz and can never answer. It must be `NFC` → `Emulate`.
+2. **RF section of this unit.** TxIRq does not prove the coil radiates: the chip
+   reports "frame sent" even with a dead antenna. A known-good MIFARE Classic
+   1K card, or the same unit on another board, separates this from hypothesis 1.
+3. **Range.** The emulator must touch the coil, flat and aligned; the unit is
+   rated below 20 mm and an emulated card is weaker than a real one.
+
+Tried without change: `RxGainReg` 0x87 (48 dB, read-back returns 0 on this
+clone), `Tx1CW` cleared, ISO14443-B REQB, WUPA wake-up, 20 ms field settle.
 
 ## Known gaps
 
 | Gap | Effect | Next step |
 |---|---|---|
-| Card exchange not validated yet | `Select`/`ReadBlock` need a physical card | Flash `examples/read` with a MIFARE card |
+| Card exchange not validated yet | `Select`/`ReadBlock` need a card that answers | See the troubleshooting table above |
 | Only cascade level 1 | 7-byte and 10-byte UIDs (NTAG21x, some cards) unsupported | Add cascade 2/3 in v0.2.0 |
 | No ISO14443-B | The unit supports it, the driver does not | Separate phase |
 | No MIFARE value/ultralight commands | Only block read/write and auth | Add if a project needs them |

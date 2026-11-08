@@ -79,6 +79,7 @@ const (
 // PICC commands and bits.
 const (
 	piccREQA     = 0x26
+	piccWUPA     = 0x52
 	piccAnticoll = 0x20
 	piccSelect   = 0x70
 	piccHalt     = 0x50
@@ -252,6 +253,11 @@ func (d *Device) Antenna(on bool) error {
 	if err := d.writeReg(regTxControl, v); err != nil {
 		return ErrNotConnected
 	}
+	if on {
+		// The field needs time to settle before the first command; the
+		// datasheet asks for a delay after AntennaOn.
+		time.Sleep(20 * time.Millisecond)
+	}
 	return nil
 }
 
@@ -288,6 +294,14 @@ func (d *Device) SelectContext(ctx context.Context) (Card, error) {
 	}
 	reqa := [1]byte{piccREQA}
 	resp, err := d.transceiveBits(reqa[:], 7, 2)
+	if err != nil {
+		// A card that was left in HALT answers WUPA, not REQA.
+		if err2 := d.writeReg(regFIFOLevel, 0x80); err2 != nil {
+			return c, err
+		}
+		wupa := [1]byte{piccWUPA}
+		resp, err = d.transceiveBits(wupa[:], 7, 2)
+	}
 	if err != nil {
 		return c, err
 	}
