@@ -236,8 +236,8 @@ func TestSelect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
-	if c.UID != testUID {
-		t.Fatalf("UID = % X, want % X", c.UID, testUID)
+	if c.UIDBytes() == nil || len(c.UIDBytes()) != 4 || c.UID[0] != testUID[0] || c.UID[3] != testUID[3] {
+		t.Fatalf("UID = % X, want % X", c.UIDBytes(), testUID)
 	}
 	if c.SAK != 0x08 {
 		t.Fatalf("SAK = %#02x", c.SAK)
@@ -508,5 +508,49 @@ func TestFootprint(t *testing.T) {
 	t.Logf("Device=%d B", size)
 	if size > 128 {
 		t.Fatalf("Device is %d B, budget is 128 B", size)
+	}
+}
+
+// TestSelectCascade2 covers a 7-byte UID card (MIFARE Ultralight): level 1
+// answers with the cascade bit set and level 2 finishes the UID.
+func TestSelectCascade2(t *testing.T) {
+	d, f := newDeviceT(t)
+	uid7 := [7]byte{0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66}
+	f.respFn = func(frame []byte, txBits byte) ([]byte, byte, byte) {
+		switch {
+		case len(frame) == 1 && frame[0] == piccREQA:
+			return []byte{0x44, 0x00}, irqRx, 0
+		case len(frame) == 2 && frame[0] == 0x93 && frame[1] == piccAnticoll:
+			// CL1: cascade tag 0x88 + UID0..2, BCC over the four bytes.
+			p := []byte{0x88, uid7[0], uid7[1], uid7[2]}
+			bcc := p[0] ^ p[1] ^ p[2] ^ p[3]
+			return append(p, bcc), irqRx, 0
+		case len(frame) == 9 && frame[0] == 0x93:
+			crc := crcA([]byte{0x04})
+			return []byte{0x04, byte(crc), byte(crc >> 8)}, irqRx, 0 // cascade bit set
+		case len(frame) == 2 && frame[0] == 0x95 && frame[1] == piccAnticoll:
+			p := []byte{uid7[3], uid7[4], uid7[5], uid7[6]}
+			bcc := p[0] ^ p[1] ^ p[2] ^ p[3]
+			return append(p, bcc), irqRx, 0
+		case len(frame) == 9 && frame[0] == 0x95:
+			crc := crcA([]byte{0x00})
+			return []byte{0x00, byte(crc), byte(crc >> 8)}, irqRx, 0 // cascade complete
+		}
+		return nil, irqRx, 0
+	}
+
+	card, err := d.Select()
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	got := card.UIDBytes()
+	want := uid7[:]
+	if len(got) != len(want) {
+		t.Fatalf("UID length = %d, want %d (% X)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("UID = % X, want % X", got, want)
+		}
 	}
 }

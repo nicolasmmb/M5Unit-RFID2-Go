@@ -92,7 +92,7 @@ func main() {
 		if err == nil {
 			tone(1, beepCard) // card detected
 			print("CARD UID:")
-			for i, b := range card.UID {
+			for i, b := range card.UIDBytes() {
 				if i > 0 {
 					print(" ")
 				}

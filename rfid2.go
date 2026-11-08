@@ -115,16 +115,27 @@ const (
 
 // Card is a card that answered the selection.
 type Card struct {
-	// UID is the serial number, 4 bytes for MIFARE Classic.
-	UID [4]byte
-	// SAK is the select acknowledge byte.
+	// UID holds up to 10 bytes: 4 (MIFARE Classic), 7 (MIFARE Ultralight,
+	// NTAG) or 10 (rare triple cascade).
+	UID [10]byte
+	// Length is the number of valid UID bytes (4, 7 or 10).
+	Length uint8
+	// SAK is the select acknowledge byte of the last cascade level.
 	SAK byte
 	// ATQA is the answer to request, 2 bytes.
 	ATQA [2]byte
 }
 
 // UIDLength reports how many bytes of UID are valid.
-func (c Card) UIDLength() int { return 4 }
+func (c Card) UIDLength() int {
+	if c.Length == 0 {
+		return 4
+	}
+	return int(c.Length)
+}
+
+// UIDBytes returns the valid UID bytes.
+func (c Card) UIDBytes() []byte { return c.UID[:c.UIDLength()] }
 
 // Device is one Unit RFID2. It is not safe for concurrent use of the antenna:
 // one card transaction at a time.
@@ -319,39 +330,68 @@ func (d *Device) SelectContext(ctx context.Context) (Card, error) {
 	}
 	c.ATQA[0], c.ATQA[1] = resp[0], resp[1]
 
-	// Anticollision level 1: 0x93 0x20, 5 bytes answer (4 UID + BCC).
-	if err := ctx.Err(); err != nil {
-		return c, err
-	}
-	anti := [2]byte{0x93, piccAnticoll}
-	uid, err := d.transceive(anti[:], 5)
-	if err != nil {
-		return c, err
-	}
-	var bcc byte
-	for i := 0; i < 4; i++ {
-		c.UID[i] = uid[i]
-		bcc ^= uid[i]
-	}
-	if bcc != uid[4] {
+	// Anticollision and select, one cascade level at a time. A card with a
+	// 7-byte UID (MIFARE Ultralight, NTAG) answers level 1 with the cascade
+	// tag bit set in the SAK and continues at level 2 (0x95).
+	level := byte(0x93)
+	var offset int
+	for {
+		if err := ctx.Err(); err != nil {
+			return c, err
+		}
+		sel := [2]byte{level, piccAnticoll}
+		part, err := d.transceive(sel[:], 5)
+		if err != nil {
+			return c, err
+		}
+		bcc := byte(0)
+		for i := 0; i < 4; i++ {
+			bcc ^= part[i]
+			if offset+i < len(c.UID) {
+				c.UID[offset+i] = part[i]
+			}
+		}
+		offset += 4
+		if bcc != part[4] {
+			return c, ErrProtocol
+		}
+
+		d.tx[0] = level
+		d.tx[1] = piccSelect
+		for i := 0; i < 5; i++ {
+			d.tx[2+i] = part[i]
+		}
+		crc := crcA(d.tx[:7])
+		d.tx[7], d.tx[8] = byte(crc), byte(crc>>8)
+		sak, err := d.transceive(d.tx[:9], 3)
+		if err != nil {
+			return c, err
+		}
+		c.SAK = sak[0]
+
+		if c.SAK&0x04 == 0 { // cascade bit clear: UID complete
+			break
+		}
+		// A multi-cascade card sends the cascade tag 0x88 as the first byte,
+		// so the real UID starts one byte later. Shift once, at level 1.
+		if level == 0x93 {
+			for i := 0; i < 3; i++ {
+				c.UID[i] = c.UID[i+1]
+			}
+			offset = 3
+			level = 0x95
+			continue
+		}
+		if level == 0x95 {
+			level = 0x97
+			continue
+		}
 		return c, ErrProtocol
 	}
-
-	// Select: 0x93 0x70 + 5 bytes + CRC_A, answer is SAK + CRC.
-	if err := ctx.Err(); err != nil {
-		return c, err
+	if offset > len(c.UID) {
+		offset = len(c.UID)
 	}
-	d.tx[0], d.tx[1] = 0x93, piccSelect
-	for i := 0; i < 5; i++ {
-		d.tx[2+i] = uid[i]
-	}
-	crc := crcA(d.tx[:7])
-	d.tx[7], d.tx[8] = byte(crc), byte(crc>>8)
-	sak, err := d.transceive(d.tx[:9], 3)
-	if err != nil {
-		return c, err
-	}
-	c.SAK = sak[0]
+	c.Length = uint8(offset)
 	return c, nil
 }
 

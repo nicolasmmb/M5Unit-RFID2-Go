@@ -117,8 +117,9 @@ Compare with `errors.Is`.
 - **`VersionReg` is not a reliable presence test.** The real unit reports
   **0x15**, not the 0x91/0x92 of an MFRC522. `Init` therefore validates the chip
   by writing `TModeReg` and reading it back.
-- Only cascade level 1 is implemented, which covers MIFARE Classic 1K/4K and
-  NTAG with a 4-byte UID. 7-byte UIDs (double cascade) are not handled yet.
+- Cascade levels 1 to 3 are implemented: 4-byte UIDs (MIFARE Classic), 7-byte
+  UIDs (MIFARE Ultralight, NTAG) and 10-byte UIDs. `Card.UID` holds up to 10
+  bytes; use `card.UIDBytes()` or `card.UIDLength()`.
 - The buffer for the FIFO write is separate from the frame buffer, because the
   frame is built in `d.tx` and the FIFO transaction needs its own register
   prefix. That bug (clobbering the first frame byte) was caught by the tests.
@@ -236,7 +237,7 @@ AXP2101 of the Plus2). That removes the power hypothesis.
 | Gap | Effect | Next step |
 |---|---|---|
 | Card exchange not validated yet | `Select`/`ReadBlock` need a card that answers | See the troubleshooting table above |
-| Only cascade level 1 | 7-byte and 10-byte UIDs (NTAG21x, some cards) unsupported | Add cascade 2/3 in v0.2.0 |
+| ~~Only cascade level 1~~ | Fixed in v0.2.0: cascade 2 and 3, so 7-byte and 10-byte UIDs work | Done |
 | No ISO14443-B | The unit supports it, the driver does not | Separate phase |
 | No MIFARE value/ultralight commands | Only block read/write and auth | Add if a project needs them |
 | `readFIFO` calls `FIFOLevel` first | One extra I2C transaction per answer | Cache the level when the length is known |

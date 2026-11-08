@@ -183,7 +183,7 @@ func main() {
 		if err == nil {
 			tone(1, 300)
 			print("CARD UID:")
-			for _, b := range card.UID {
+			for _, b := range card.UIDBytes() {
 				print(" ")
 				hex2(b)
 			}

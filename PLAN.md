@@ -27,8 +27,8 @@ Dentro: init/versão/antena, REQA + anticolisão + select (UID/SAK/ATQA), auth
 A/B, leitura e escrita de bloco, halt, CRC_A em software, testes de host,
 benchmarks, exemplo, CI com gate de agnosticismo.
 
-Fora: cascata 2/3 (UID de 7/10 bytes), ISO14443-B, comandos de valor do MIFARE,
-Ultralight, e o modo de descoberta contínua.
+Fora: ISO14443-B, comandos de valor do MIFARE e Ultralight, e descoberta contínua.
+(cascata 2/3 entrou na v0.2.0)
 
 ## 3. Achados de hardware (2026-11-08)
 

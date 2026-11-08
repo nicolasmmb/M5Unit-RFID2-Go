@@ -116,7 +116,7 @@ func main() {
 		tone(1, 250) // card detected: one long beep
 
 		print("UID:")
-		hex(card.UID[:])
+		hex(card.UIDBytes())
 		println()
 		println("SAK:", card.SAK, "ATQA:", card.ATQA[0], card.ATQA[1])
 
