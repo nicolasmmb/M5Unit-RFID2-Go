@@ -433,6 +433,11 @@ func (d *Device) selectLocked(c *Card, knownBits uint8, knownUID []byte) (Card, 
 
 			r, rlb, err := d.transceiveFrame(buf[:used], txLastBits, rxAlign, respLen)
 			if err == ErrCollision {
+				// The bytes received before the collision are the known prefix:
+				// they must go into the buffer before choosing the collision bit.
+				if len(r) > 0 {
+					copy(buf[idx:], r)
+				}
 				coll, cerr := d.readReg(regColl)
 				if cerr != nil {
 					return *c, ErrNotConnected
