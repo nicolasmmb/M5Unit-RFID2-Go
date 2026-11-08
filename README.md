@@ -286,11 +286,29 @@ AXP2101 of the Plus2). That removes the power hypothesis.
 `SetAntennaGain` writes RxGain[2:0] of `RFCfgReg` exactly like
 `PCD_SetAntennaGain`, and `GetAntennaGain` reads it back (18 dB → 48 dB works).
 
-The measured read range, however, did **not** improve: about 3 finger widths
-with 18 dB and the same with 48 dB, and at 48 dB the reader became noisier
-(needed a more precise position for a stable read). The antenna, not the
-receiver gain, is the limit on this module. 38 dB (factory value) is the
-practical setting.
+Measured with the card at several heights, 18 dB and 48 dB measured as a pair
+at (almost) the same position, one pair every ~4 s:
+
+| Card position | 18 dB | 48 dB |
+|---|---|---|
+| touching the coil … inside the energy zone (pairs 1–12) | **100%** | **100%** |
+| right at the boundary (pair 13) | **29%** | **0%** |
+| just above the boundary (pairs 14–18) | 0% | 0% |
+
+Conclusions:
+
+1. **The gain does not extend the range.** Inside the zone both give 100%, and
+   outside both give 0%. The range is set by how far the transmitter can power
+   the card (forward link), not by the receiver gain.
+2. **At the edge, less gain was better**: 29% with 18 dB against 0% with 48 dB.
+   Maximum gain amplifies noise, which agrees with the feeling that the reader
+   "needed to get closer" at 48 dB.
+3. Practical setting: **38 dB** (factory). 48 dB is only useful with a very
+   quiet environment and the card almost touching.
+
+Method caveat: each pair measured 18 dB first and 48 dB second, so a manual
+movement inside a pair biases the comparison (pair 13 may be partly that). A
+strict test would randomise the order inside each pair.
 
 ## Known gaps
 

@@ -36,9 +36,21 @@ com 48 dB. No ganho máximo o leitor ficou mais sensível a ruído (exigia mais
 proximidade para leitura estável), o que é o comportamento esperado quando o
 limitante é a antena e não o ganho do receptor.
 
+**Medição em pares (18 dB e 48 dB quase no mesmo ponto, 1 par a cada ~4 s):**
+
+| Posição do cartão | 18 dB | 48 dB |
+|---|---|---|
+| dentro da zona de energia (pares 1–12) | 100% | 100% |
+| na borda (par 13) | **29%** | **0%** |
+| acima da borda (pares 14–18) | 0% | 0% |
+
 Conclusão: `SetAntennaGain` funciona no registrador (paridade com
-`PCD_SetAntennaGain`), mas neste módulo o ganho **não aumenta o alcance**.
-Deixar em 38 dB (valor de fábrica) é a escolha prática.
+`PCD_SetAntennaGain`), mas **não aumenta o alcance** — quem define é a energia
+que chega no cartão. Na borda, **menos ganho foi melhor** (29% vs 0%): 48 dB
+amplifica ruído. Valor prático: **38 dB**.
+
+Ressalva de método: em cada par o 18 dB foi medido primeiro; movimento manual
+dentro do par distorce a comparação (o par 13 pode ter parte disso).
 
 ## 3. Utilitários (`GetTypeName`, dump) — ✅ FEITO (2026-11-08)
 
