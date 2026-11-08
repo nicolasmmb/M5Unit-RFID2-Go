@@ -9,15 +9,19 @@ Legenda: **EU** = eu faço sozinho · **VOCÊ** = precisa de ação física ·
 
 ---
 
-## 1. `WriteBlock` (última função de dados sem validação)
+## 1. `WriteBlock` — ✅ FEITO (2026-11-08)
 
 **EU**: estendo o harness com escrita + leitura de volta nos dois lados
 (C++ e TinyGo), no **bloco 4** (primeiro bloco de dados do setor 1), e comparo.
 **VOCÊ**: encosta o cartão quando eu pedir (2×, uma por firmware).
 **RISCO**: baixo. Escrevo só no bloco 4; **nunca** no bloco 0 (manufacturer)
 nem nos trailers (3, 7, 11…) — trailer errado pode travar o cartão.
-**Prova**: `write4=ok` seguido de `read4=<16 bytes escritos>` igual nos dois
-lados, e o conteúdo anterior salvo para restaurar depois.
+**Prova (obtida)**: escrita em **duas fases** (a de uma fase deixava o cartão
+mudo), `write=ok`, `readback` igual ao padrão, `verify=PASS`, e o conteúdo
+original restaurado com `restore=PASS`.
+
+**Nota**: o lado C++ não serviu de referência aqui porque a lib oficial **falha
+no auth** neste cartão clone; a referência foi o protocolo MIFARE (duas fases).
 
 ## 2. `SetAntennaGain` / `GetAntennaGain`
 

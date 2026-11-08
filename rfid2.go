@@ -459,16 +459,32 @@ func (d *Device) ReadBlock(block byte) ([16]byte, error) {
 	return out, nil
 }
 
-// WriteBlock writes one MIFARE block (16 bytes) and waits for the ACK.
+// WriteBlock writes one MIFARE block (16 bytes).
+//
+// MIFARE Classic writes in two phases: first the command with the block address
+// and its CRC, wait for the 4-bit ACK, then the 16 data bytes with their CRC
+// and a second ACK. Sending everything in one frame leaves the card waiting for
+// the second phase and it stops answering.
 func (d *Device) WriteBlock(block byte, data [16]byte) error {
+	// Phase 1: command + block + CRC.
 	d.tx[0] = piccWrite
 	d.tx[1] = block
-	copy(d.tx[2:18], data[:])
-	crc := crcA(d.tx[:18])
-	d.tx[18], d.tx[19] = byte(crc), byte(crc>>8)
+	crc := crcA(d.tx[:2])
+	d.tx[2], d.tx[3] = byte(crc), byte(crc>>8)
+	if err := d.expectAck(d.tx[:4]); err != nil {
+		return err
+	}
 
-	// The card answers with 4 bits (0x0A) and no CRC.
-	rx, err := d.transceiveBits(d.tx[:20], 0, 1)
+	// Phase 2: the 16 data bytes + CRC.
+	copy(d.tx[:16], data[:])
+	crc = crcA(d.tx[:16])
+	d.tx[16], d.tx[17] = byte(crc), byte(crc>>8)
+	return d.expectAck(d.tx[:18])
+}
+
+// expectAck sends frame and expects the 4-bit MIFARE ACK (0x0A).
+func (d *Device) expectAck(frame []byte) error {
+	rx, err := d.transceiveBits(frame, 0, 1)
 	if err != nil {
 		return err
 	}

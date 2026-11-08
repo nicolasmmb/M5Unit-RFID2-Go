@@ -65,7 +65,7 @@ chaves, mesma ordem, mesmo formato `chave=valor`) e os logs são comparados.
 | `PICC_IsNewCardPresent` | `Select` (retorna erro `ErrNoCard`/`ErrTimeout`) | ✅ |
 | `PCD_Authenticate` (A e B) | `Authenticate` | ✅ chave A validada |
 | `MIFARE_Read` | `ReadBlock` | ✅ validado |
-| `MIFARE_Write` | `WriteBlock` | ⚠️ implementado, **não validado em cartão** |
+| `MIFARE_Write` | `WriteBlock` | ✅ validado em cartão (escrita em duas fases) |
 | `PCD_StopCrypto1` | `StopCrypto1` | ✅ validado |
 | `PCD_GetAntennaGain` | `Register(0x26) & 0x70` | ⚠️ só leitura, sem setter |
 | `PCD_SetAntennaGain` | — | ❌ falta |
@@ -74,9 +74,28 @@ chaves, mesma ordem, mesmo formato `chave=valor`) e os logs são comparados.
 | `PICC_GetTypeName`, `PICC_Dump*`, `PCD_DumpVersionToSerial` | — | ❌ falta (utilitários) |
 | `PICC_Select` público (multi-cartão) | — | ❌ falta |
 
+## `WriteBlock`: duas fases
+
+O MIFARE Classic escreve em **duas fases**: `A0 bloco CRC` → ACK de 4 bits, e
+depois `16 bytes CRC` → segundo ACK. Mandar os 20 bytes num quadro só (como faz
+a lib C oficial) deixa o cartão esperando a segunda fase e ele **para de
+responder** — foi o que aconteceu no primeiro teste de escrita.
+
+Medido no hardware (bloco 4, restaurado depois):
+
+```
+auth=ok
+original=00000000000000000000000000000000
+write=ok
+readback=54494e59474f2d57524954452d4f4b21   ("TINYGO-WRITE-OK!")
+verify=PASS
+restored=00000000000000000000000000000000
+restore=PASS
+```
+
 ## Próximos passos de paridade
 
-1. `WriteBlock` num bloco de dados (4) com leitura de volta, nos dois lados.
+1. ~~`WriteBlock` num bloco de dados (4) com leitura de volta~~ ✅
 2. `SetAntennaGain` + `GetAntennaGain` na API.
 3. Value blocks (`Decrement`/`Increment`/`Restore`/`Transfer`) se algum projeto
    usar carteira MIFARE.

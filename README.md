@@ -110,8 +110,10 @@ Compare with `errors.Is`.
 
 - **CRC_A is computed in Go** (poly 0x8408 reflected, init 0x6363). Read and
   write frames carry it, and the answer CRC is verified for reads.
-- Reads request 18 bytes (16 data + 2 CRC); writes send 20 bytes
-  (command + block + 16 data + 2 CRC) and expect a 4-bit ACK `0x0A`.
+- Reads request 18 bytes (16 data + 2 CRC). **Writes use the two-phase MIFARE
+  protocol**: `A0 block CRC` → 4-bit ACK, then `16 data CRC` → second ACK.
+  Sending the 20 bytes in one frame (as the official C library does) leaves the
+  card waiting for phase two and it stops answering.
 - Authentication failure is read from `ErrorReg` with the same mask as the C
   driver (`0x1B`: ProtocolErr, ParityErr, CollErr, BufferOvfl).
 - **`VersionReg` is not a reliable presence test.** The real unit reports

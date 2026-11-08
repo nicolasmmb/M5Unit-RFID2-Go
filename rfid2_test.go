@@ -146,8 +146,10 @@ func cardScript(f *fakeChip) responder {
 			}
 			crc := crcA(out)
 			return append(out, byte(crc), byte(crc>>8)), irqRx, 0
-		case len(frame) == 20 && frame[0] == piccWrite:
-			return []byte{0x0A}, irqRx, 0
+		case len(frame) == 4 && frame[0] == piccWrite:
+			return []byte{0x0A}, irqRx, 0 // phase 1 ACK
+		case len(frame) == 18:
+			return []byte{0x0A}, irqRx, 0 // phase 2 ACK
 		}
 		return nil, irqRx, 0
 	}
@@ -347,19 +349,33 @@ func TestWriteBlock(t *testing.T) {
 	if err := d.WriteBlock(5, data); err != nil {
 		t.Fatalf("WriteBlock: %v", err)
 	}
-	// The frame must carry the data and a valid CRC.
+
 	f.mu.Lock()
-	frame := f.frames[len(f.frames)-1]
+	frames := append([][]byte(nil), f.frames...)
 	f.mu.Unlock()
-	if len(frame) != 20 {
-		t.Fatalf("frame length = %d, want 20", len(frame))
+	if len(frames) < 2 {
+		t.Fatalf("frames = %d, want 2 phases", len(frames))
 	}
-	if frame[0] != piccWrite || frame[1] != 5 {
-		t.Fatalf("frame header = % X", frame[:2])
+	// Phase 1: A0, block, CRC_A.
+	p1 := frames[len(frames)-2]
+	if len(p1) != 4 || p1[0] != piccWrite || p1[1] != 5 {
+		t.Fatalf("phase 1 = % X", p1)
 	}
-	got := uint16(frame[18]) | uint16(frame[19])<<8
-	if crcA(frame[:18]) != got {
-		t.Fatal("CRC of the write frame is wrong")
+	if got := uint16(p1[2]) | uint16(p1[3])<<8; crcA(p1[:2]) != got {
+		t.Fatal("phase 1 CRC is wrong")
+	}
+	// Phase 2: the 16 data bytes and their CRC_A.
+	p2 := frames[len(frames)-1]
+	if len(p2) != 18 {
+		t.Fatalf("phase 2 length = %d, want 18", len(p2))
+	}
+	for i := 0; i < 16; i++ {
+		if p2[i] != data[i] {
+			t.Fatalf("phase 2 byte %d = %#02x, want %#02x", i, p2[i], data[i])
+		}
+	}
+	if got := uint16(p2[16]) | uint16(p2[17])<<8; crcA(p2[:16]) != got {
+		t.Fatal("phase 2 CRC is wrong")
 	}
 
 	// A wrong ACK is a protocol error.
