@@ -37,6 +37,16 @@ Ultralight, e o modo de descoberta contínua.
    igual ao C (`endTransmission` + `requestFrom`).
 2. O `VersionReg` do WS1850S desta unidade devolve **0x15**, não 0x91/0x92.
    Por isso o `Init` valida o chip com write + read-back de `TModeReg`.
+3. O FIFO precisa ser **limpo** (`FIFOLevel = 0x80`) antes de cada quadro e o
+   `StartSend` vai **depois** do comando. Sem a limpeza, sobrava 1 byte e o
+   quadro seguinte saía corrompido.
+4. As transações de registrador precisam de **buffer próprio**: elas usavam o
+   buffer do quadro, e um write de registrador dentro do transceive apagava o
+   quadro (o HALT saía `13 00 57 CD` em vez de `50 00 57 CD`).
+
+Estado: `Init`, antena e transmissão comprovados (TxIRq em toda tentativa,
+FIFO volta a 0). Nenhum cartão respondeu ainda: o `RxIRq` nunca dispara com os
+cartões disponíveis. Falta um cartão 13,56 MHz ISO14443-A conhecido.
 
 ## 4. Decisões
 

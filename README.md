@@ -157,13 +157,25 @@ So `Init` (reset, timer, antenna, register write + read-back) and the REQA
 transceive work on the unit. `Select`, `Authenticate` and the block commands
 still need a card on the antenna to be confirmed.
 
-Two hardware facts that changed the driver:
+Facts found on real hardware that changed the driver:
 
 1. The register read needs a **STOP between the address write and the read**;
    a repeated start returns garbage. Every register and FIFO read now uses two
    `Tx` calls, like the C library.
 2. `VersionReg` returns **0x15**, not 0x91/0x92, so `Init` checks the chip with
    a write/read-back instead.
+3. The FIFO must be **flushed** (`FIFOLevel = 0x80`) before every frame, and
+   `StartSend` goes **after** the command. Without the flush, a leftover byte
+   corrupted the next frame (the FIFO showed level 1).
+4. The register transactions need their **own 2-byte buffer**. They shared the
+   frame buffer, so a register write inside a transceive overwrote the frame
+   (the HALT frame arrived as `13 00 57 CD` instead of `50 00 57 CD`).
+
+Current status: `Init`, the antenna and the transmit path are verified on the
+unit (TxIRq fires on every attempt, FIFO returns to 0). No card answered yet:
+with the cards available, `RxIRq` never fires. That needs a known 13.56 MHz
+ISO14443-A card (MIFARE Classic 1K/4K or NTAG) to close the loop, or the unit's
+RF section needs a check.
 
 ## Known gaps
 

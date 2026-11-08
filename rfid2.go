@@ -133,6 +133,7 @@ type Device struct {
 	tx      [maxFrame + 2]byte // frames built by the caller
 	rx      [maxFrame + 2]byte
 	fifo    [maxFrame + 2]byte // [register, frame...] for the FIFO write
+	reg     [2]byte            // register transactions, never a frame buffer
 }
 
 // New returns a Device at the default address. Call Init before use.
@@ -156,6 +157,29 @@ func (d *Device) SetTimeout(t time.Duration) {
 		return
 	}
 	d.timeout = t
+}
+
+// Transceive is the low-level frame exchange: it sends frame with lastBits
+// valid bits in the final byte, waits for an answer and returns up to rxLen
+// bytes. CRC is not added and not checked.
+//
+// Use it for diagnostics or for commands this driver does not wrap.
+func (d *Device) Transceive(frame []byte, lastBits byte, rxLen int) ([]byte, error) {
+	return d.transceiveBits(frame, lastBits&0x07, rxLen)
+}
+
+// Register reads one register. It is the escape hatch for diagnostics and for
+// commands this driver does not wrap yet.
+func (d *Device) Register(reg byte) (byte, error) {
+	return d.readReg(reg)
+}
+
+// SetRegister writes one register.
+func (d *Device) SetRegister(reg, value byte) error {
+	if err := d.writeReg(reg, value); err != nil {
+		return ErrNotConnected
+	}
+	return nil
 }
 
 // Version returns the version register.
@@ -395,9 +419,19 @@ func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) 
 	if len(frame) > maxFrame {
 		return nil, ErrFrame
 	}
-	if err := d.writeFIFO(frame); err != nil {
-		return nil, err
+	// Reference sequence from the MFRC522 datasheet and the Arduino library:
+	// idle, clear the IRQ flags, flush the FIFO, write the frame, set the
+	// framing bits, start the command and only then set StartSend.
+	if err := d.writeReg(regCommand, cmdIdle); err != nil {
+		return nil, ErrNotConnected
 	}
+	if err := d.writeReg(regComIrq, 0x7F); err != nil {
+		return nil, ErrNotConnected
+	}
+	if err := d.writeReg(regFIFOLevel, 0x80); err != nil { // flush
+		return nil, ErrNotConnected
+	}
+
 	if crcOn {
 		if err := d.writeReg(regTxMode, 0x80); err != nil { // TxCRCEn
 			return nil, ErrNotConnected
@@ -413,16 +447,22 @@ func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) 
 			return nil, ErrNotConnected
 		}
 	}
-	// Clear the IRQ flags and start the transceive.
-	if err := d.writeReg(regComIrq, 0x7F); err != nil {
-		return nil, ErrNotConnected
+
+	if err := d.writeFIFO(frame); err != nil {
+		return nil, err
 	}
-	if err := d.writeReg(regBitFraming, bfStartSend|txBits); err != nil {
+	// Last bits only, StartSend clear.
+	if err := d.writeReg(regBitFraming, txBits&0x07); err != nil {
 		return nil, ErrNotConnected
 	}
 	if err := d.writeReg(regCommand, cmdTransceive); err != nil {
 		return nil, ErrNotConnected
 	}
+	// StartSend after the command, as in the reference driver.
+	if err := d.writeReg(regBitFraming, bfStartSend|(txBits&0x07)); err != nil {
+		return nil, ErrNotConnected
+	}
+
 	if err := d.waitIRQ(irqRx); err != nil {
 		return nil, err
 	}
@@ -496,8 +536,8 @@ func (d *Device) readFIFO(n int) ([]byte, error) {
 	if int(level) < n {
 		return nil, ErrFrame
 	}
-	d.tx[0] = regFIFOData
-	if err := d.bus.Tx(d.addr, d.tx[:1], nil); err != nil {
+	d.reg[0] = regFIFOData
+	if err := d.bus.Tx(d.addr, d.reg[:1], nil); err != nil {
 		return nil, ErrNotConnected
 	}
 	if err := d.bus.Tx(d.addr, nil, d.rx[:n]); err != nil {
@@ -510,8 +550,8 @@ func (d *Device) readReg(reg byte) (byte, error) {
 	// Two transactions, with a STOP in between, like the C library
 	// (endTransmission then requestFrom). The unit's I2C bridge does not accept
 	// a repeated start for the register read.
-	d.tx[0] = reg
-	if err := d.bus.Tx(d.addr, d.tx[:1], nil); err != nil {
+	d.reg[0] = reg
+	if err := d.bus.Tx(d.addr, d.reg[:1], nil); err != nil {
 		return 0, err
 	}
 	if err := d.bus.Tx(d.addr, nil, d.rx[:1]); err != nil {
@@ -521,9 +561,9 @@ func (d *Device) readReg(reg byte) (byte, error) {
 }
 
 func (d *Device) writeReg(reg, value byte) error {
-	d.tx[0] = reg
-	d.tx[1] = value
-	return d.bus.Tx(d.addr, d.tx[:2], nil)
+	d.reg[0] = reg
+	d.reg[1] = value
+	return d.bus.Tx(d.addr, d.reg[:2], nil)
 }
 
 // crcA is the ISO/IEC 14443-A CRC: polynomial 0x8408 reflected, init 0x6363.
