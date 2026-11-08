@@ -201,6 +201,22 @@ Open hypotheses, in order:
 Tried without change: `RxGainReg` 0x87 (48 dB, read-back returns 0 on this
 clone), `Tx1CW` cleared, ISO14443-B REQB, WUPA wake-up, 20 ms field settle.
 
+### Parity with the official C driver
+
+After a line-by-line reading of `MFRC522_I2C.cpp`, these were aligned:
+
+| Item | Official | Was | Now |
+|---|---|---|---|
+| `TModeReg` | 0x80 | 0x8D | 0x80 |
+| `TPrescalerReg` | 0xA9 (169) | 0x3E | 0xA9 |
+| Reload | 0x03E8 (1000, 25 ms) | 30 (~15 ms) | 0x03E8 |
+| Reset | wait for PowerDown to clear | fixed sleep | waits |
+| Wait IRQ | `RxIRq \| IdleIRq` (0x30) | `RxIRq` only | 0x30 |
+| Error mask | 0x13 (BufferOvfl, ParityErr, ProtocolErr) | included CRCErr | 0x13 |
+
+With all of that the behaviour on the unit is unchanged: the frame goes out
+(TxIRq), the FIFO is clean and no card answers.
+
 ### Board check (examples/pmic)
 
 The diagnostic firmware scans the internal bus:

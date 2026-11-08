@@ -102,6 +102,7 @@ const (
 	txControlRF    = 0x03
 	status2Crypto1 = 0x08
 	authErrMask    = 0x1B
+	errFatalMask   = 0x13
 )
 
 // KeyType selects the MIFARE key of an authentication.
@@ -198,35 +199,46 @@ func (d *Device) Init() error {
 	if d.bus == nil {
 		return ErrNotConnected
 	}
-	// Soft reset and wait for the reset phase to finish.
+	// Soft reset, then wait for the PowerDown bit (CommandReg bit 4) to clear,
+	// like the official PCD_Reset.
 	if err := d.writeReg(regCommand, cmdSoftReset); err != nil {
 		return ErrNotConnected
 	}
 	time.Sleep(50 * time.Millisecond)
+	for i := 0; i < 20; i++ {
+		v, err := d.readReg(regCommand)
+		if err != nil {
+			return ErrNotConnected
+		}
+		if v&0x10 == 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 
-	// Timer: TAuto=1, TPrescalerEven=1, TPrescaler 169 -> 40.8 kHz.
+	// Timer exactly as the official C library: TAuto=1, TPrescaler 0x0A9 (169)
+	// -> f_timer 40 kHz, reload 1000 -> 25 ms timeout.
 	//
 	// This write is also the presence test: some WS1850S batches do not report
 	// 0x91/0x92 in VersionReg, so a register write + read-back is the reliable
 	// check that the chip is there and the I2C mapping is right.
-	if err := d.writeReg(regTMode, 0x8D); err != nil {
+	if err := d.writeReg(regTMode, 0x80); err != nil {
 		return ErrNotConnected
 	}
 	back, err := d.readReg(regTMode)
 	if err != nil {
 		return ErrNotConnected
 	}
-	if back != 0x8D {
+	if back != 0x80 {
 		return ErrBadVersion
 	}
-	if err := d.writeReg(regTPrescaler, 0x3E); err != nil {
+	if err := d.writeReg(regTPrescaler, 0xA9); err != nil {
 		return ErrNotConnected
 	}
-	// Reload 30: about 25 ms, used as the transceive timeout.
-	if err := d.writeReg(regTReloadH, 0x00); err != nil {
+	if err := d.writeReg(regTReloadH, 0x03); err != nil {
 		return ErrNotConnected
 	}
-	if err := d.writeReg(regTReloadL, 30); err != nil {
+	if err := d.writeReg(regTReloadL, 0xE8); err != nil {
 		return ErrNotConnected
 	}
 	if err := d.writeReg(regTxASK, 0x40); err != nil {
@@ -477,7 +489,8 @@ func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) 
 		return nil, ErrNotConnected
 	}
 
-	if err := d.waitIRQ(irqRx); err != nil {
+	// The official driver waits for RxIRq or IdleIRq (0x30), not only RxIRq.
+	if err := d.waitIRQ(irqRx | irqIdle); err != nil {
 		return nil, err
 	}
 	if err := d.checkError(); err != nil {
@@ -516,13 +529,13 @@ func (d *Device) checkError() error {
 	if err != nil {
 		return ErrNotConnected
 	}
-	switch {
-	case v&errCRC != 0:
-		return ErrCRC
-	case v&errColl != 0:
-		return ErrCollision
-	case v&errProto != 0:
+	// Same mask as the official driver: BufferOvfl, ParityErr, ProtocolErr.
+	// CRCErr is not used here because CRC_A is verified in software.
+	if v&errFatalMask != 0 {
 		return ErrProtocol
+	}
+	if v&errColl != 0 {
+		return ErrCollision
 	}
 	return nil
 }

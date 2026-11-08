@@ -177,7 +177,7 @@ func TestInit(t *testing.T) {
 	if f.regs[regTxControl]&txControlRF != txControlRF {
 		t.Fatalf("antenna not enabled: %#02x", f.regs[regTxControl])
 	}
-	if f.regs[regMode] != 0x3D || f.regs[regTMode] != 0x8D {
+	if f.regs[regMode] != 0x3D || f.regs[regTMode] != 0x80 {
 		t.Fatalf("timers not set: mode %#02x tmode %#02x", f.regs[regMode], f.regs[regTMode])
 	}
 
