@@ -150,6 +150,7 @@ type Device struct {
 	rx      [maxFrame + 2]byte
 	fifo    [maxFrame + 2]byte // [register, frame...] for the FIFO write
 	reg     [2]byte            // register transactions, never a frame buffer
+	one     [1]byte            // single register reads, never the rx buffer
 }
 
 // New returns a Device at the default address. Call Init before use.
@@ -305,97 +306,227 @@ func (d *Device) Halt() error {
 	return err
 }
 
-// Select sends REQA, runs the anticollision and selects the card.
+// Select sends REQA, runs the bit-level anticollision and selects one card.
+//
+// With several cards in the field it resolves the collisions like the official
+// PICC_Select: it reads CollReg, keeps the prefix and chooses the bit that is 1,
+// which makes the reader pick one card deterministically. Use SelectAll to
+// enumerate every card, HALTing each one.
 func (d *Device) Select() (Card, error) {
 	return d.SelectContext(context.Background())
 }
 
-// SelectContext is Select with a cancellation check between the stages.
+// SelectContext is Select with cancellation checks between the stages.
 func (d *Device) SelectContext(ctx context.Context) (Card, error) {
+	if err := ctx.Err(); err != nil {
+		return Card{}, err
+	}
 	var c Card
 
-	// REQA: 7 bits, no CRC.
-	if err := ctx.Err(); err != nil {
-		return c, err
-	}
+	// REQA: 7 bits, no CRC. A card left in HALT only answers WUPA.
 	reqa := [1]byte{piccREQA}
-	resp, err := d.transceiveBits(reqa[:], 7, 2)
+	resp, _, err := d.transceiveFrame(reqa[:], 7, 0, 2)
 	if err != nil {
-		// A card that was left in HALT answers WUPA, not REQA.
-		if err2 := d.writeReg(regFIFOLevel, 0x80); err2 != nil {
-			return c, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return c, ctxErr
 		}
-		wupa := [1]byte{piccWUPA}
-		resp, err = d.transceiveBits(wupa[:], 7, 2)
+		d.tx[0] = piccWUPA
+		resp, _, err = d.transceiveFrame(d.tx[:1], 7, 0, 2)
 	}
-	if err != nil {
+	if err != nil || len(resp) < 2 {
+		if err == nil {
+			err = ErrNoCard
+		}
 		return c, err
 	}
 	c.ATQA[0], c.ATQA[1] = resp[0], resp[1]
 
-	// Anticollision and select, one cascade level at a time. A card with a
-	// 7-byte UID (MIFARE Ultralight, NTAG) answers level 1 with the cascade
-	// tag bit set in the SAK and continues at level 2 (0x95).
-	level := byte(0x93)
-	var offset int
+	return d.selectLocked(&c, 0, nil)
+}
+
+// clearBits is below; selectLocked is the port of PICC_Select.
+func (d *Device) selectLocked(c *Card, knownBits uint8, knownUID []byte) (Card, error) {
+	// ValuesAfterColl = 1: bits received after a collision are cleared, so the
+	// prefix stays valid while we resolve the collisions.
+	if err := d.clearBits(regColl, 0x80); err != nil {
+		return *c, ErrNotConnected
+	}
+
+	var buf [9]byte
+	cascade := uint8(1)
 	for {
-		if err := ctx.Err(); err != nil {
-			return c, err
-		}
-		sel := [2]byte{level, piccAnticoll}
-		part, err := d.transceive(sel[:], 5)
-		if err != nil {
-			return c, err
-		}
-		bcc := byte(0)
-		for i := 0; i < 4; i++ {
-			bcc ^= part[i]
-			if offset+i < len(c.UID) {
-				c.UID[offset+i] = part[i]
-			}
-		}
-		offset += 4
-		if bcc != part[4] {
-			return c, ErrProtocol
+		var sel, uidIndex uint8
+		useCascadeTag := false
+		switch cascade {
+		case 1:
+			sel, uidIndex = 0x93, 0
+			useCascadeTag = knownBits > 0 && len(knownUID) > 4
+		case 2:
+			sel, uidIndex = 0x95, 3
+			useCascadeTag = knownBits > 0 && len(knownUID) > 7
+		case 3:
+			sel, uidIndex = 0x97, 6
+		default:
+			return *c, ErrProtocol
 		}
 
-		d.tx[0] = level
-		d.tx[1] = piccSelect
-		for i := 0; i < 5; i++ {
-			d.tx[2+i] = part[i]
+		cur := int(knownBits) - 8*int(uidIndex)
+		if cur < 0 {
+			cur = 0
 		}
-		crc := crcA(d.tx[:7])
-		d.tx[7], d.tx[8] = byte(crc), byte(crc>>8)
-		sak, err := d.transceive(d.tx[:9], 3)
-		if err != nil {
-			return c, err
+		buf[0] = sel
+		idx := 2
+		if useCascadeTag {
+			buf[idx] = 0x88 // cascade tag
+			idx++
 		}
-		c.SAK = sak[0]
+		toCopy := cur / 8
+		if cur%8 != 0 {
+			toCopy++
+		}
+		maxBytes := 4
+		if useCascadeTag {
+			maxBytes = 3
+		}
+		if toCopy > maxBytes {
+			toCopy = maxBytes
+		}
+		for i := 0; i < toCopy; i++ {
+			buf[idx] = knownUID[int(uidIndex)+i]
+			idx++
+		}
+		if useCascadeTag {
+			cur += 8
+		}
 
-		if c.SAK&0x04 == 0 { // cascade bit clear: UID complete
-			break
-		}
-		// A multi-cascade card sends the cascade tag 0x88 as the first byte,
-		// so the real UID starts one byte later. Shift once, at level 1.
-		if level == 0x93 {
-			for i := 0; i < 3; i++ {
-				c.UID[i] = c.UID[i+1]
+		var resp []byte
+		var rxLastBits byte
+		selectDone := false
+		for iter := 0; iter < 32 && !selectDone; iter++ {
+			var txLastBits byte
+			var used, respLen int
+			if cur >= 32 {
+				// SELECT: SEL + NVB 0x70 + 4 UID bytes + BCC + CRC_A.
+				buf[1] = 0x70
+				buf[6] = buf[2] ^ buf[3] ^ buf[4] ^ buf[5]
+				crc := crcA(buf[:7])
+				buf[7], buf[8] = byte(crc), byte(crc>>8)
+				txLastBits = 0
+				used = 9
+				respLen = 3
+			} else {
+				// ANTICOLLISION: SEL + NVB(known bits) + the known prefix.
+				// The answer lands in the free part of buf, which is how the
+				// following SELECT gets the UID bytes (same as the official
+				// driver, where responseBuffer points into buffer).
+				txLastBits = byte(cur % 8)
+				whole := cur / 8
+				idx = 2 + whole
+				buf[1] = byte(idx<<4) + txLastBits
+				used = idx
+				if txLastBits != 0 {
+					used++
+				}
+				respLen = len(buf) - idx
 			}
-			offset = 3
-			level = 0x95
+			rxAlign := txLastBits
+
+			r, rlb, err := d.transceiveFrame(buf[:used], txLastBits, rxAlign, respLen)
+			if err == ErrCollision {
+				coll, cerr := d.readReg(regColl)
+				if cerr != nil {
+					return *c, ErrNotConnected
+				}
+				if coll&0x20 != 0 { // CollPosNotValid
+					return *c, ErrCollision
+				}
+				pos := int(coll & 0x1F)
+				if pos == 0 {
+					pos = 32
+				}
+				if pos <= cur {
+					return *c, ErrCollision // no progress
+				}
+				cur = pos
+				bit := (cur - 1) % 8
+				bi := 1 + cur/8
+				if bit != 0 {
+					bi++
+				}
+				if bi >= len(buf) {
+					return *c, ErrProtocol
+				}
+				buf[bi] |= 1 << uint(bit)
+				continue
+			}
+			if err != nil {
+				return *c, err
+			}
+			resp, rxLastBits = r, rlb
+			if cur >= 32 {
+				selectDone = true
+			} else {
+				// The UID bits just received become the known prefix.
+				copy(buf[idx:], r)
+				cur = 32 // all 32 bits of this level are known now
+			}
+		}
+		if !selectDone {
+			return *c, ErrCollision
+		}
+
+		// Copy the UID bytes of this level (skipping the cascade tag).
+		src, n := 2, 4
+		if buf[2] == 0x88 {
+			src, n = 3, 3
+		}
+		for i := 0; i < n; i++ {
+			if int(uidIndex)+i < len(c.UID) {
+				c.UID[int(uidIndex)+i] = buf[src+i]
+			}
+		}
+
+		// The answer must be SAK + CRC_A, all bits valid.
+		if len(resp) != 3 || rxLastBits != 0 {
+			return *c, ErrProtocol
+		}
+		crc := crcA(resp[:1])
+		if byte(crc) != resp[1] || byte(crc>>8) != resp[2] {
+			return *c, ErrCRC
+		}
+
+		if resp[0]&0x04 != 0 { // cascade bit: more levels
+			cascade++
 			continue
 		}
-		if level == 0x95 {
-			level = 0x97
-			continue
+		c.SAK = resp[0]
+		c.Length = 3*cascade + 1
+		return *c, nil
+	}
+}
+
+// SelectAll enumerates every card in the field.
+//
+// It selects one card, HALTs it (so it stops answering) and repeats. The cards
+// must be able to answer one at a time, which is what the bit-level
+// anticollision in Select guarantees.
+func (d *Device) SelectAll(max int) ([]Card, error) {
+	if max <= 0 {
+		max = 8
+	}
+	var out []Card
+	for i := 0; i < max; i++ {
+		c, err := d.Select()
+		if err != nil {
+			if len(out) > 0 {
+				return out, nil // no more cards
+			}
+			return nil, err
 		}
-		return c, ErrProtocol
+		out = append(out, c)
+		_ = d.Halt()
 	}
-	if offset > len(c.UID) {
-		offset = len(c.UID)
-	}
-	c.Length = uint8(offset)
-	return c, nil
+	return out, nil
 }
 
 // StopCrypto1 releases the Crypto1 state after an authenticated operation, so
@@ -645,6 +776,15 @@ func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) 
 	return d.readFIFO(rxLen)
 }
 
+// clearBits is the read-modify-write used by PCD_ClearRegisterBitMask.
+func (d *Device) clearBits(reg, mask byte) error {
+	v, err := d.readReg(reg)
+	if err != nil {
+		return err
+	}
+	return d.writeReg(reg, v&^mask)
+}
+
 // setBits is the read-modify-write used by the official PCD_SetRegisterBitMask.
 func (d *Device) setBits(reg, mask byte) error {
 	v, err := d.readReg(reg)
@@ -652,6 +792,82 @@ func (d *Device) setBits(reg, mask byte) error {
 		return err
 	}
 	return d.writeReg(reg, v|mask)
+}
+
+// transceiveFrame is the low-level exchange with full bit framing control:
+// txBits valid bits in the last transmitted byte, rxAlign bits skipped at the
+// start of the response. It returns the response bytes and the number of valid
+// bits in the last received byte (ControlReg & 0x07).
+//
+// ErrCollision is returned when the chip reports a collision, so the caller can
+// read CollReg and resolve it.
+func (d *Device) transceiveFrame(frame []byte, txBits, rxAlign byte, rxMax int) ([]byte, byte, error) {
+	if len(frame) > maxFrame {
+		return nil, 0, ErrFrame
+	}
+	if err := d.writeReg(regCommand, cmdIdle); err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if err := d.writeReg(regComIrq, 0x7F); err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if err := d.setBits(regFIFOLevel, 0x80); err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if err := d.writeFIFO(frame); err != nil {
+		return nil, 0, err
+	}
+	if err := d.writeReg(regBitFraming, (rxAlign&0x07)<<4|(txBits&0x07)); err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if err := d.writeReg(regCommand, cmdTransceive); err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if err := d.setBits(regBitFraming, bfStartSend); err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if err := d.waitIRQ(irqRx | irqIdle); err != nil {
+		return nil, 0, err
+	}
+
+	// Collisions are not fatal here: the caller resolves them.
+	v, err := d.readReg(regError)
+	if err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if v&errFatalMask != 0 {
+		return nil, 0, ErrProtocol
+	}
+	collided := v&errColl != 0
+
+	level, err := d.readReg(regFIFOLevel)
+	if err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	n := int(level)
+	if n > rxMax {
+		n = rxMax
+	}
+	if n > len(d.rx) {
+		n = len(d.rx)
+	}
+	if n > 0 {
+		d.reg[0] = regFIFOData
+		if err := d.bus.Tx(d.addr, d.reg[:1], nil); err != nil {
+			return nil, 0, ErrNotConnected
+		}
+		if err := d.bus.Tx(d.addr, nil, d.rx[:n]); err != nil {
+			return nil, 0, ErrNotConnected
+		}
+	}
+	ctl, err := d.readReg(regControl)
+	if err != nil {
+		return nil, 0, ErrNotConnected
+	}
+	if collided {
+		return d.rx[:n], ctl & 0x07, ErrCollision
+	}
+	return d.rx[:n], ctl & 0x07, nil
 }
 
 // waitIRQ waits for any of the mask bits in ComIrqReg.
@@ -736,10 +952,10 @@ func (d *Device) readReg(reg byte) (byte, error) {
 	if err := d.bus.Tx(d.addr, d.reg[:1], nil); err != nil {
 		return 0, err
 	}
-	if err := d.bus.Tx(d.addr, nil, d.rx[:1]); err != nil {
+	if err := d.bus.Tx(d.addr, nil, d.one[:]); err != nil {
 		return 0, err
 	}
-	return d.rx[0], nil
+	return d.one[0], nil
 }
 
 func (d *Device) writeReg(reg, value byte) error {

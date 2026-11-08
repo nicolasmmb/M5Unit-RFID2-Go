@@ -289,15 +289,17 @@ func TestSelectCollision(t *testing.T) {
 	if _, err := d.Select(); err != ErrCollision {
 		t.Fatalf("collision = %v", err)
 	}
-	// A broken BCC is a protocol error.
+	// With bit-level anticollision the reader computes the BCC itself (like the
+	// official driver), so a card that sends a wrong BCC is not detected as
+	// such: the SELECT simply fails. A garbage answer surfaces as a CRC error.
 	f.respFn = func(frame []byte, txBits byte) ([]byte, byte, byte) {
 		if len(frame) == 1 {
 			return []byte{0x44, 0x00}, irqRx, 0
 		}
 		return []byte{0x01, 0x02, 0x03, 0x04, 0x00}, irqRx, 0
 	}
-	if _, err := d.Select(); err != ErrProtocol {
-		t.Fatalf("bad BCC = %v", err)
+	if _, err := d.Select(); err != ErrCRC {
+		t.Fatalf("garbage answer = %v, want ErrCRC", err)
 	}
 }
 

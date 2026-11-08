@@ -120,6 +120,12 @@ Compare with `errors.Is`.
 - **`VersionReg` is not a reliable presence test.** The real unit reports
   **0x15**, not the 0x91/0x92 of an MFRC522. `Init` therefore validates the chip
   by writing `TModeReg` and reading it back.
+- **Bit-level anticollision**: with several cards in the field `Select` reads
+  `CollReg`, keeps the prefix and picks the bit that is 1, exactly like
+  `PICC_Select` in the official driver. `SelectAll(max)` enumerates every card,
+  HALTing each one. Validated with one card; two cards stacked on the coil
+  detune the antenna (the official C++ driver cannot read them either), so
+  place them side by side or at an angle.
 - Cascade levels 1 to 3 are implemented: 4-byte UIDs (MIFARE Classic), 7-byte
   UIDs (MIFARE Ultralight, NTAG) and 10-byte UIDs. `Card.UID` holds up to 10
   bytes; use `card.UIDBytes()` or `card.UIDLength()`.
