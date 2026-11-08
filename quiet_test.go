@@ -88,6 +88,9 @@ func (c *quietChip) exec(cmd byte) {
 		c.irq, c.errReg, c.respLen = irqRx, 0, 0
 		f := c.frame[:c.frameLen]
 		switch {
+		case f[0] == piccValueIncrement || f[0] == piccValueDecrement ||
+			f[0] == piccValueRestore || f[0] == piccValueTransfer:
+			c.resp[0], c.respLen = 0x0A, 1
 		case len(f) == 1 && f[0] == piccREQA:
 			c.resp[0], c.resp[1], c.respLen = 0x04, 0x00, 2
 		case len(f) == 2 && f[0] == 0x93 && f[1] == piccAnticoll:

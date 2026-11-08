@@ -74,15 +74,24 @@ escritas erradas, **travam o cartão para sempre**. Vou escrever só na página 
 e só com o seu OK explícito.
 **Prova**: `readPage(4)` antes/depois, e o OTP/config intocados.
 
-## 5. Value blocks (Decrement/Increment/Restore/Transfer)
+## 5. Value blocks — ⛔ BLOQUEADO (precisa de access bits de value block)
 
 **EU**: implemento os 4 comandos e um `FormatValueBlock`.
 **VOCÊ**: autorizar escrever um bloco de valor no seu cartão (bloco 5, por
 exemplo) e depois eu restauro o conteúdo original.
 **RISCO**: médio-alto — value block mal formado pode ser lido como transporte
 e corromper a lógica do bloco (dados, não o cartão).
-**Prova**: `Decrement` reduz o saldo, `Restore` volta, `ReadBlock` mostra o
-formato (valor + complemento + backup).
+**Resultado**: implementado e em paridade com o C++ (`MIFARE_TwoStepHelper`:
+duas fases, timeout da fase 2 aceito como sucesso). O **formato do value block
+foi validado no cartão**: gravei `FormatValue(100, 5)` e li de volta
+`64 00 00 00 9B FF FF FF 64 00 00 00 05 05 05 05` com complemento e endereço
+corretos.
+
+**Bloqueio**: os comandos de valor recebem **NAK** porque o setor 1 está com os
+access bits de bloco de dados comum. O cartão só aceita `Increment`/`Decrement`/
+`Restore` quando o trailer do setor marca o bloco como *value block*
+(`C1C2C3 = 110` ou `001`). Reescrever o trailer pode deixar o setor somente
+leitura, então isso precisa de autorização explícita e de backup do bloco 7.
 
 ## 6. Anticolisão com dois cartões — ✅ FEITO (2026-11-08)
 

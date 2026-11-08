@@ -30,18 +30,19 @@ const (
 
 // Errors returned by the driver. Sentinels: compare with errors.Is.
 var (
-	ErrNotConnected = errors.New("rfid2: unit not responding")
-	ErrBadVersion   = errors.New("rfid2: unexpected chip version")
-	ErrNoCard       = errors.New("rfid2: no card in the field")
-	ErrCollision    = errors.New("rfid2: collision during anticollision")
-	ErrAuth         = errors.New("rfid2: MIFARE authentication failed")
-	ErrCRC          = errors.New("rfid2: CRC error")
-	ErrProtocol     = errors.New("rfid2: protocol error")
-	ErrTimeout      = errors.New("rfid2: timeout")
-	ErrFrame        = errors.New("rfid2: frame too long")
-	ErrBadBlock     = errors.New("rfid2: block out of range")
-	ErrNotMagic     = errors.New("rfid2: block 0 refused, the card is not a magic card")
-	ErrBadUID       = errors.New("rfid2: UID must be 4 bytes and not all 0x00 or all 0xFF")
+	ErrNotConnected  = errors.New("rfid2: unit not responding")
+	ErrBadVersion    = errors.New("rfid2: unexpected chip version")
+	ErrNoCard        = errors.New("rfid2: no card in the field")
+	ErrCollision     = errors.New("rfid2: collision during anticollision")
+	ErrAuth          = errors.New("rfid2: MIFARE authentication failed")
+	ErrCRC           = errors.New("rfid2: CRC error")
+	ErrProtocol      = errors.New("rfid2: protocol error")
+	ErrTimeout       = errors.New("rfid2: timeout")
+	ErrFrame         = errors.New("rfid2: frame too long")
+	ErrBadBlock      = errors.New("rfid2: block out of range")
+	ErrNotMagic      = errors.New("rfid2: block 0 refused, the card is not a magic card")
+	ErrBadUID        = errors.New("rfid2: UID must be 4 bytes and not all 0x00 or all 0xFF")
+	ErrNotValueBlock = errors.New("rfid2: block is not a MIFARE value block")
 )
 
 // Register map of the MFRC522/WS1850S (datasheet chapter 9).
@@ -658,8 +659,8 @@ func (d *Device) ReadBlock(block byte) ([16]byte, error) {
 func (d *Device) WriteBlock(block byte, data [16]byte) error {
 	// Safety: block 0 is the manufacturer block (read only) and every fourth
 	// block is a sector trailer. A wrong trailer can lock the card forever.
-	if block == 0 || block%4 == 3 {
-		return ErrBadBlock
+	if err := checkDataBlock(block); err != nil {
+		return err
 	}
 	// Phase 1: command + block + CRC.
 	d.tx[0] = piccWrite
