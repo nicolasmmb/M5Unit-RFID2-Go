@@ -325,13 +325,13 @@ func (d *Device) SelectContext(ctx context.Context) (Card, error) {
 
 	// REQA: 7 bits, no CRC. A card left in HALT only answers WUPA.
 	reqa := [1]byte{piccREQA}
-	resp, _, err := d.transceiveFrame(reqa[:], 7, 0, 2)
+	resp, _, err := d.transceiveFrame(reqa[:], 7, 0, 2, false)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return c, ctxErr
 		}
 		d.tx[0] = piccWUPA
-		resp, _, err = d.transceiveFrame(d.tx[:1], 7, 0, 2)
+		resp, _, err = d.transceiveFrame(d.tx[:1], 7, 0, 2, false)
 	}
 	if err != nil || len(resp) < 2 {
 		if err == nil {
@@ -431,7 +431,7 @@ func (d *Device) selectLocked(c *Card, knownBits uint8, knownUID []byte) (Card, 
 			}
 			rxAlign := txLastBits
 
-			r, rlb, err := d.transceiveFrame(buf[:used], txLastBits, rxAlign, respLen)
+			r, rlb, err := d.transceiveFrame(buf[:used], txLastBits, rxAlign, respLen, cur >= 32)
 			if err == ErrCollision {
 				// The bytes received before the collision are the known prefix:
 				// they must go into the buffer before choosing the collision bit.
@@ -857,7 +857,7 @@ func (d *Device) setBits(reg, mask byte) error {
 //
 // ErrCollision is returned when the chip reports a collision, so the caller can
 // read CollReg and resolve it.
-func (d *Device) transceiveFrame(frame []byte, txBits, rxAlign byte, rxMax int) ([]byte, byte, error) {
+func (d *Device) transceiveFrame(frame []byte, txBits, rxAlign byte, rxMax int, wantRxBits bool) ([]byte, byte, error) {
 	if len(frame) > maxFrame {
 		return nil, 0, ErrFrame
 	}
@@ -919,14 +919,18 @@ func (d *Device) transceiveFrame(frame []byte, txBits, rxAlign byte, rxMax int) 
 			return nil, 0, ErrNotConnected
 		}
 	}
-	ctl, err := d.readReg(regControl)
-	if err != nil {
-		return nil, 0, ErrNotConnected
+	var rxBits byte
+	if wantRxBits {
+		ctl, err := d.readReg(regControl)
+		if err != nil {
+			return nil, 0, ErrNotConnected
+		}
+		rxBits = ctl & 0x07
 	}
 	if collided {
-		return d.rx[:n], ctl & 0x07, ErrCollision
+		return d.rx[:n], rxBits, ErrCollision
 	}
-	return d.rx[:n], ctl & 0x07, nil
+	return d.rx[:n], rxBits, nil
 }
 
 // waitIRQ waits for any of the mask bits in ComIrqReg.

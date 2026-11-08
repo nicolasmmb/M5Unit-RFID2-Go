@@ -150,9 +150,9 @@ See [BENCHMARKS.md](BENCHMARKS.md). Host, fake chip:
 
 RAM: `Device` 104 bytes. Flash: `examples/read` 36.1 KB on `m5stick-c`.
 
-Measured on the unit (MIFARE Classic 1K, key A on block 4): `Select` 11.1 ms,
-`Authenticate` 3.1 ms, `ReadBlock` 5.1 ms at **400 kHz** — a full cycle of
-19.3 ms, about 50 reads per second. At 100 kHz the same cycle takes 42 ms, so
+Measured on the unit (MIFARE Classic 1K, key A on block 4): `Select` 10.3 ms,
+`Authenticate` 3.1 ms, `ReadBlock` 4.9 ms at **400 kHz** — a full cycle of
+18.4 ms, about 54 reads per second. At 100 kHz the same cycle takes 42 ms. At 100 kHz the same cycle takes 42 ms, so
 configure the bus at 400 kHz.
 
 Reliability: 500 cycles of select + auth + read at 400 kHz ran with **zero

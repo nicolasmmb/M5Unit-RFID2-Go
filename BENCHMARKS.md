@@ -75,8 +75,29 @@ checked on the answer:
 | `ReadBlock` (18 bytes + CRC) | 9 145 µs | **5 113 µs** |
 | full cycle | ~42 ms | **~19,3 ms** (~50 cycles/s) |
 
-Averages over 40 samples at 400 kHz; the `Select` samples ranged 10 778–14 900 µs,
-the outliers being collision retries.
+Averages over 40–50 samples at 400 kHz; the `Select` samples ranged
+10 347–14 900 µs, the outliers being collision retries.
+
+After the I2C round-trip reduction below: `Select` 10 347 µs, `Auth` 3 112 µs,
+`Read` 4 928 µs.
+
+### Reducing the I2C round-trips (v0.6.5)
+
+Three changes: the FIFO flush is a plain `0x80` write (bits 6:0 are read-only,
+nothing to preserve), `StartSend` goes in the same write as the framing bits,
+and `ControlReg` (RxLastBits) is only read when the anticollision needs it.
+
+| Operation | Before | After | Gain |
+|---|---:|---:|---:|
+| `Select` | 11 104 µs | 10 347 µs | **−6,8 %** |
+| `Authenticate` | 3 112 µs | 3 112 µs | 0 (no RMW on that path) |
+| `ReadBlock` | 5 113 µs | 4 928 µs | −3,6 % |
+
+It is a small win, not the 13 % I estimated: a register read at 400 kHz costs
+about 80 µs (write of the address + 1-byte read), not 250 µs. The remaining cost
+is dominated by the ~6 register **writes** per transceive and by the three
+transceives of `Select`; cutting that means caching register state, which is
+where the subtle bugs live, so it is not worth it now.
 
 Findings:
 

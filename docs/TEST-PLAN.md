@@ -121,7 +121,8 @@ Teste de estresse: 1000 selects seguidos sem vazar (heap estável).
 `ReadBlock`.
 **VOCÊ**: encosta o cartão uma vez.
 **Prova (obtida)**: 100 kHz → `Select` 28,5 ms, `Auth` 4,7 ms, `Read` 9,1 ms.
-400 kHz → **11,1 / 3,1 / 5,1 ms**, ciclo de ~19,3 ms (~50 leituras/s). O unit
+400 kHz → **10,3 / 3,1 / 4,9 ms** após cortar três round-trips de I2C
+(ciclo de ~18,4 ms, ~54 leituras/s). O unit
 **funciona a 400 kHz**, então a recomendação é 400 kHz. Números no BENCHMARKS.
 
 ## 10. Documentação da placa — ✅ FEITO (2026-11-08)
