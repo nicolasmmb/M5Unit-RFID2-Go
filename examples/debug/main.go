@@ -25,6 +25,24 @@ func bits(v byte) {
 	}
 }
 
+// crcB is the ISO/IEC 14443-B CRC: poly 0x1021 reflected, init 0xFFFF, and
+// the result is complemented. Type A uses crcA instead; using the wrong one
+// makes the frame invalid and the card silently ignores it.
+func crcB(b []byte) uint16 {
+	crc := uint16(0xFFFF)
+	for _, v := range b {
+		crc ^= uint16(v)
+		for i := 0; i < 8; i++ {
+			if crc&1 != 0 {
+				crc = crc>>1 ^ 0x8408
+			} else {
+				crc >>= 1
+			}
+		}
+	}
+	return ^crc
+}
+
 func main() {
 	time.Sleep(1200 * time.Millisecond)
 
@@ -167,6 +185,46 @@ func main() {
 	if got > 0 {
 		println("STEP 6 PASS: card answered", got, "times")
 	} else {
-		println("STEP 6 FAIL: no RxIRq, the receiver never saw the card")
+		println("STEP 6 FAIL: no RxIRq (type A)")
+	}
+
+	// STEP 7: ISO14443-B probe with CRC_B (REQB, AFI 0x00, PARAM 0x00).
+	println("STEP 7: type B probe (REQB + CRC_B), keep the card on the coil")
+	reqb := []byte{0x05, 0x00, 0x00}
+	crcb := crcB(reqb)
+	reqb = append(reqb, byte(crcb), byte(crcb>>8))
+	print("  REQB frame:")
+	for _, b := range reqb {
+		print(" ")
+		hex2(b)
+	}
+	println()
+	ok := 0
+	for i := 0; i < 10; i++ {
+		resp, err := d.Transceive(reqb, 0, 14)
+		irq, _ := d.Register(0x04)
+		e, _ := d.Register(0x06)
+		print("  try ", i, " ComIrq:")
+		bits(irq)
+		print(" ErrorReg ")
+		hex2(e)
+		if len(resp) > 0 {
+			print(" resp[", len(resp), "]:")
+			for _, b := range resp {
+				print(" ")
+				hex2(b)
+			}
+			ok++
+		}
+		if err != nil {
+			print(" ", err.Error())
+		}
+		println()
+		time.Sleep(400 * time.Millisecond)
+	}
+	if ok > 0 {
+		println("STEP 7 PASS: a type B card answered", ok, "times")
+	} else {
+		println("STEP 7 FAIL: no type B answer")
 	}
 }
