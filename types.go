@@ -4,17 +4,19 @@ package rfid2
 // official driver.
 type Type uint8
 
+// The numeric values match PICC_Type in the official driver, so logs and
+// fixtures from both sides can be compared directly.
 const (
-	TypeUnknown Type = iota
-	TypeNotComplete
-	TypeMifareMini
-	TypeMifare1K
-	TypeMifare4K
-	TypeMifareUL
-	TypeMifarePlus
-	TypeTNP3XXX
-	TypeISO14443_4
-	TypeISO18092
+	TypeUnknown     Type = 0
+	TypeISO14443_4  Type = 1
+	TypeISO18092    Type = 2
+	TypeMifareMini  Type = 3
+	TypeMifare1K    Type = 4
+	TypeMifare4K    Type = 5
+	TypeMifareUL    Type = 6
+	TypeMifarePlus  Type = 7
+	TypeTNP3XXX     Type = 8
+	TypeNotComplete Type = 255
 )
 
 // String returns the name used in the logs.

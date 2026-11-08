@@ -84,6 +84,9 @@ func main() {
 	hex2(card.SAK)
 	println()
 
+	print("type=")
+	println(card.Type().String())
+
 	key := [6]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	var uid4 [4]byte
 	copy(uid4[:], card.UIDBytes())

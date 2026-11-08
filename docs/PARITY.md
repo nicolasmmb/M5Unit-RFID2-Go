@@ -40,6 +40,21 @@ chaves, mesma ordem, mesmo formato `chave=valor`) e os logs são comparados.
    caso, porque `IdleIRq` significa "comando concluído". Comportamento no fio é
    o mesmo; a diferença é o que se reporta.
 
+## Tipo do cartão (`PICC_GetType` / `PICC_GetTypeName`)
+
+Mesmo cartão (`e0de9a7f`, SAK 0x08), dois lados:
+
+| Campo | C++ oficial | TinyGo | |
+|---|---|---|---|
+| `type_code` | `4` | `4` | ✅ enum idêntico |
+| `type_name` | `MIFARE 1KB` | `MIFARE Classic 1K` | ⚠️ só o texto |
+
+Os valores numéricos de `Type` foram alinhados com `PICC_Type` do C++
+(`Unknown 0`, `ISO14443_4 1`, `ISO18092 2`, `Mini 3`, `1K 4`, `4K 5`,
+`UL 6`, `Plus 7`, `TNP3XXX 8`, `NotComplete 255`), então logs e fixtures
+comparáveis por número. O texto ficou o nosso, mais legível; a comparação
+confiável é pelo código.
+
 ## Quirks da lib oficial encontrados no caminho
 
 | Quirk | Efeito | Como tratamos |
@@ -71,7 +86,9 @@ chaves, mesma ordem, mesmo formato `chave=valor`) e os logs são comparados.
 | `PCD_SetAntennaGain` | — | ❌ falta |
 | `MIFARE_Decrement` / `Increment` / `Restore` / `Transfer` | — | ❌ falta (value blocks) |
 | `MIFARE_Ultralight_ReadPage` / `WritePage` | — | ❌ falta |
-| `PICC_GetTypeName`, `PICC_Dump*`, `PCD_DumpVersionToSerial` | — | ❌ falta (utilitários) |
+| `PICC_GetType` | `Card.Type()` (mesmos valores numéricos) | ✅ validado |
+| `PICC_GetTypeName` | `Type.String()` | ✅ (texto diferente, código igual) |
+| `PICC_Dump*`, `PCD_DumpVersionToSerial` | — | ❌ falta |
 | `PICC_Select` público (multi-cartão) | — | ❌ falta |
 
 ## `WriteBlock`: duas fases

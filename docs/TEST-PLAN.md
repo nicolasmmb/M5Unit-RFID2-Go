@@ -39,7 +39,9 @@ no auth** neste cartão clone; a referência foi o protocolo MIFARE (duas fases)
 **VOCÊ**: nada.
 **RISCO**: zero.
 **Prova (obtida)**: `Card.Type()` com a tabela do `PICC_GetType`, testada
-contra o cartão real (SAK 0x08 → MIFARE Classic 1K) e com 11 casos de host.
+contra o cartão real e com 11 casos de host. **Comparado com o C++**: os dois
+lados imprimem `type_code=4` para o mesmo cartão; só o texto difere
+(`MIFARE 1KB` na oficial, `MIFARE Classic 1K` aqui).
 
 ## 4. Ultralight page read/write
 
