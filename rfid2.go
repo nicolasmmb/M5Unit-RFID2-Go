@@ -40,6 +40,8 @@ var (
 	ErrTimeout      = errors.New("rfid2: timeout")
 	ErrFrame        = errors.New("rfid2: frame too long")
 	ErrBadBlock     = errors.New("rfid2: block out of range")
+	ErrNotMagic     = errors.New("rfid2: block 0 refused, the card is not a magic card")
+	ErrBadUID       = errors.New("rfid2: UID must be 4 bytes and not all 0x00 or all 0xFF")
 )
 
 // Register map of the MFRC522/WS1850S (datasheet chapter 9).
@@ -485,6 +487,95 @@ func (d *Device) WriteBlock(block byte, data [16]byte) error {
 	crc = crcA(d.tx[:16])
 	d.tx[16], d.tx[17] = byte(crc), byte(crc>>8)
 	return d.expectAck(d.tx[:18])
+}
+
+// SetUID writes a new 4-byte UID on a magic card (Gen2), using the factory
+// key A (FF FF FF FF FF FF) for sector 0.
+//
+// It does the whole block 0: reads the current block, replaces bytes 0..3,
+// recomputes the BCC (UID0^UID1^UID2^UID3), keeps SAK, ATQA and the
+// manufacturer bytes, writes the block in the two MIFARE phases and reads it
+// back to verify. Forgetting the BCC makes the card fail anticollision, so this
+// is the only supported way to change a UID.
+//
+// On a normal card block 0 is read-only: the card refuses and SetUID returns
+// ErrNotMagic, with nothing written.
+func (d *Device) SetUID(card Card, newUID [4]byte) error {
+	return d.SetUIDWithKey(card, newUID, KeyA, [6]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF})
+}
+
+// SetUIDWithKey is SetUID with an explicit key for sector 0.
+func (d *Device) SetUIDWithKey(card Card, newUID [4]byte, keyType KeyType, key [6]byte) error {
+	if err := validUID(newUID); err != nil {
+		return err
+	}
+	if card.UIDLength() != 4 {
+		// A 7-byte UID card has a different block 0 layout.
+		return ErrBadUID
+	}
+
+	var uid4 [4]byte
+	copy(uid4[:], card.UID[:4])
+	if err := d.Authenticate(0, keyType, key, uid4); err != nil {
+		return err
+	}
+	original, err := d.ReadBlock(0)
+	if err != nil {
+		return err
+	}
+
+	blk := original
+	copy(blk[0:4], newUID[:])
+	blk[4] = newUID[0] ^ newUID[1] ^ newUID[2] ^ newUID[3]
+
+	if err := d.writeBlockRaw(0, blk); err != nil {
+		if err == ErrProtocol {
+			return ErrNotMagic
+		}
+		return err
+	}
+
+	back, err := d.ReadBlock(0)
+	if err != nil {
+		return err
+	}
+	if back != blk {
+		return ErrProtocol
+	}
+	return nil
+}
+
+// writeBlockRaw is the two-phase write without the block-0 guard.
+func (d *Device) writeBlockRaw(block byte, data [16]byte) error {
+	d.tx[0] = piccWrite
+	d.tx[1] = block
+	crc := crcA(d.tx[:2])
+	d.tx[2], d.tx[3] = byte(crc), byte(crc>>8)
+	if err := d.expectAck(d.tx[:4]); err != nil {
+		return err
+	}
+	copy(d.tx[:16], data[:])
+	crc = crcA(d.tx[:16])
+	d.tx[16], d.tx[17] = byte(crc), byte(crc>>8)
+	return d.expectAck(d.tx[:18])
+}
+
+// validUID rejects the two UIDs that brick a card: all bits zero and all bits
+// one are not usable identities.
+func validUID(uid [4]byte) error {
+	allZero, allFF := true, true
+	for _, b := range uid {
+		if b != 0x00 {
+			allZero = false
+		}
+		if b != 0xFF {
+			allFF = false
+		}
+	}
+	if allZero || allFF {
+		return ErrBadUID
+	}
+	return nil
 }
 
 // expectAck sends frame and expects the 4-bit MIFARE ACK (0x0A).

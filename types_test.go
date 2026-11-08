@@ -98,3 +98,49 @@ func TestFatalErrorReg(t *testing.T) {
 		t.Fatalf("CollErr = %v, want ErrCollision", err)
 	}
 }
+
+// TestSetUID covers the magic-card writer: BCC recomputation, SAK/ATQA and
+// manufacturer bytes preserved, and ErrNotMagic when the card refuses.
+func TestSetUID(t *testing.T) {
+	d, f := newDeviceT(t)
+	card := Card{SAK: 0x08, Length: 4, UID: [10]byte{0xE0, 0xDE, 0x9A, 0x7F}}
+
+	// Block 0 with the original content.
+	var blk [16]byte
+	copy(blk[:], []byte{0xE0, 0xDE, 0x9A, 0x7F, 0xDB, 0x08, 0x04, 0x00, 0x47, 0x59, 0x55, 0xD1, 0x41, 0x10, 0x36, 0x07})
+	f.block0 = blk
+
+	newUID := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+	if err := d.SetUID(card, newUID); err != nil {
+		t.Fatalf("SetUID: %v", err)
+	}
+	want := blk
+	copy(want[0:4], newUID[:])
+	want[4] = 0xDE ^ 0xAD ^ 0xBE ^ 0xEF // 0x22
+	if f.block0 != want {
+		t.Fatalf("block 0 = % X, want % X", f.block0, want)
+	}
+	if want[4] != 0x22 || want[5] != 0x08 || want[6] != 0x04 || want[7] != 0x00 {
+		t.Fatalf("layout wrong: % X", want)
+	}
+
+	// All zero / all FF UIDs are refused.
+	if err := d.SetUID(card, [4]byte{}); err != ErrBadUID {
+		t.Fatalf("zero uid = %v", err)
+	}
+	if err := d.SetUID(card, [4]byte{0xFF, 0xFF, 0xFF, 0xFF}); err != ErrBadUID {
+		t.Fatalf("ff uid = %v", err)
+	}
+
+	// A card that refuses block 0 is not magic.
+	f.block0ReadOnly = true
+	if err := d.SetUID(card, newUID); err != ErrNotMagic {
+		t.Fatalf("read-only block 0 = %v", err)
+	}
+
+	// A 7-byte UID card is not supported here.
+	card.Length = 7
+	if err := d.SetUID(card, newUID); err != ErrBadUID {
+		t.Fatalf("7-byte uid card = %v", err)
+	}
+}

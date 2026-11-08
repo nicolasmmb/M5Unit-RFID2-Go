@@ -15,19 +15,22 @@ var errNack = errors.New("fake: nack")
 type responder func(frame []byte, txBits byte) (resp []byte, irq, errReg byte)
 
 type fakeChip struct {
-	mu         sync.Mutex
-	regs       [0x40]byte
-	pendingReg byte
-	frame      []byte
-	resp       []byte
-	irq        byte
-	errReg     byte
-	version    byte
-	dead       bool
-	dropWrites bool
-	txBits     byte
-	respFn     responder
-	frames     [][]byte
+	mu             sync.Mutex
+	regs           [0x40]byte
+	pendingReg     byte
+	frame          []byte
+	resp           []byte
+	irq            byte
+	errReg         byte
+	version        byte
+	dead           bool
+	dropWrites     bool
+	block0         [16]byte
+	block0ReadOnly bool
+	lastBlock      byte
+	txBits         byte
+	respFn         responder
+	frames         [][]byte
 }
 
 func newChip() *fakeChip {
@@ -139,6 +142,10 @@ func cardScript(f *fakeChip) responder {
 			}
 			crcSak := crcA([]byte{0x08})
 			return []byte{0x08, byte(crcSak), byte(crcSak >> 8)}, irqRx, 0
+		case len(frame) == 4 && frame[0] == piccRead && frame[1] == 0:
+			out := append([]byte(nil), f.block0[:]...)
+			crc := crcA(out)
+			return append(out, byte(crc), byte(crc>>8)), irqRx, 0
 		case len(frame) == 4 && frame[0] == piccRead:
 			var out []byte
 			for i := 0; i < 16; i++ {
@@ -147,8 +154,15 @@ func cardScript(f *fakeChip) responder {
 			crc := crcA(out)
 			return append(out, byte(crc), byte(crc>>8)), irqRx, 0
 		case len(frame) == 4 && frame[0] == piccWrite:
+			f.lastBlock = frame[1]
+			if f.lastBlock == 0 && f.block0ReadOnly {
+				return []byte{0x00}, irqRx, 0 // NAK: block 0 protected
+			}
 			return []byte{0x0A}, irqRx, 0 // phase 1 ACK
 		case len(frame) == 18:
+			if f.lastBlock == 0 {
+				copy(f.block0[:], frame[:16])
+			}
 			return []byte{0x0A}, irqRx, 0 // phase 2 ACK
 		}
 		return nil, irqRx, 0
