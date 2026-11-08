@@ -835,10 +835,13 @@ func (d *Device) transceiveFrame(frame []byte, txBits, rxAlign byte, rxMax int) 
 	if err != nil {
 		return nil, 0, ErrNotConnected
 	}
-	if v&errFatalMask != 0 {
+	// With several cards in the field a parity error is expected: it means more
+	// than one card modulated at the same time, so it is treated like a
+	// collision and resolved through CollReg, not as a fatal error.
+	collided := v&(errColl|0x02) != 0
+	if v&(errFatalMask&^0x02) != 0 {
 		return nil, 0, ErrProtocol
 	}
-	collided := v&errColl != 0
 
 	level, err := d.readReg(regFIFOLevel)
 	if err != nil {
