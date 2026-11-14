@@ -792,6 +792,22 @@ func (d *Device) transceiveBits(frame []byte, txBits byte, rxLen int) ([]byte, e
 	return d.doTransceive(frame, txBits, rxLen, false)
 }
 
+// doTransceive is the frame exchange used by read, write, halt and the public
+// Transceive.
+//
+// TRAP - do not write TxModeReg (0x12) or RxModeReg (0x13) here. An earlier
+// version did it on every transceive "to enable the hardware CRC", and the
+// receiver went silent: the transmitter still finished (TxIRq set), but no
+// answer ever arrived. The signature is unmistakable and cost hours to find:
+//
+//	ComIrqReg     = 0x45  TxIRq + LoAlert + TimerIRq, never RxIRq
+//	ErrorReg      = 0x00  no collision, parity or protocol error
+//	FIFOLevelReg  = 0     nothing received
+//	TxControlReg  = 0x83  antenna on
+//
+// The official driver never touches those two registers: the CRC bytes are
+// computed in software and appended to the frame, and the answer CRC is
+// verified in software as well. Do the same.
 func (d *Device) doTransceive(frame []byte, txBits byte, rxLen int, crcOn bool) ([]byte, error) {
 	if len(frame) > maxFrame {
 		return nil, ErrFrame
@@ -858,6 +874,9 @@ func (d *Device) setBits(reg, mask byte) error {
 //
 // ErrCollision is returned when the chip reports a collision, so the caller can
 // read CollReg and resolve it.
+// transceiveFrame is the bit-level exchange used by the anticollision. It uses
+// the same register sequence as doTransceive: read the TRAP note there before
+// touching TxModeReg/RxModeReg.
 func (d *Device) transceiveFrame(frame []byte, txBits, rxAlign byte, rxMax int, wantRxBits bool) ([]byte, byte, error) {
 	if len(frame) > maxFrame {
 		return nil, 0, ErrFrame

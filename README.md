@@ -331,6 +331,31 @@ Method caveat: each pair measured 18 dB first and 48 dB second, so a manual
 movement inside a pair biases the comparison (pair 13 may be partly that). A
 strict test would randomise the order inside each pair.
 
+## Trap: never write `TxModeReg` / `RxModeReg`
+
+An early version enabled the hardware CRC by writing `TxModeReg` (0x12) and
+`RxModeReg` (0x13) before every transceive. The receiver goes **silent**: the
+transmitter still finishes its frame, but no answer ever arrives, and every
+register looks healthy.
+
+The signature is unmistakable:
+
+| Register | Value | Meaning |
+|---|---|---|
+| `ComIrqReg` | `0x45` | TxIRq + LoAlert + TimerIRq — **never RxIRq** |
+| `ErrorReg` | `0x00` | no collision, parity or protocol error |
+| `FIFOLevelReg` | `0` | nothing received |
+| `TxControlReg` | `0x83` | antenna on |
+
+How to read it: transmit works (TxIRq), the timer expires, and the chip reports
+no error, yet no card answers.
+
+The driver now never touches those registers. The CRC_A is computed in software
+and appended to the frame, and the answer CRC is verified in software. This is
+what the official C driver does. If you are about to "enable the hardware CRC",
+do not: it costs hours to find and the symptom points everywhere except at the
+real cause.
+
 ## Known gaps
 
 | Gap | Effect | Next step |
